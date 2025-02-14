@@ -99,11 +99,13 @@ import org.apache.polaris.core.persistence.resolver.PolarisResolutionManifestCat
 import org.apache.polaris.core.persistence.resolver.ResolverPath;
 import org.apache.polaris.core.persistence.resolver.ResolverStatus;
 import org.apache.polaris.core.storage.InMemoryStorageIntegration;
+import org.apache.polaris.core.storage.PolarisCredentialProperty;
 import org.apache.polaris.core.storage.PolarisCredentialVendor;
 import org.apache.polaris.core.storage.PolarisStorageActions;
 import org.apache.polaris.core.storage.PolarisStorageConfigurationInfo;
 import org.apache.polaris.core.storage.PolarisStorageIntegration;
 import org.apache.polaris.core.storage.StorageLocation;
+import org.apache.polaris.core.storage.aws.AwsStorageConfigurationInfo;
 import org.apache.polaris.service.catalog.io.FileIOFactory;
 import org.apache.polaris.service.catalog.io.FileIOUtil;
 import org.apache.polaris.service.exception.IcebergExceptionMapper;
@@ -826,7 +828,8 @@ public class BasePolarisCatalog extends BaseMetastoreViewCatalog
           .log("Table entity has no storage configuration in its hierarchy");
       return Map.of();
     }
-    return FileIOUtil.refreshCredentials(
+
+    Map<String, String> returnedCreds = FileIOUtil.refreshCredentials(
         realmContext,
         entityManager,
         getCredentialVendor(),
@@ -836,6 +839,35 @@ public class BasePolarisCatalog extends BaseMetastoreViewCatalog
         getLocationsAllowedToBeAccessed(tableMetadata),
         storageActions,
         storageInfo.get());
+
+    // SNOW-1926859 - Temporarily patch CLIENT_REGION if it's not set by the underlying
+    // integration.
+    CatalogEntity castedEntity = CatalogEntity.of(storageInfo.get());
+    if (returnedCreds != null && castedEntity != null) {
+      PolarisStorageConfigurationInfo storageConfigurationInfo =
+          castedEntity.getStorageConfigurationInfo();
+      // For sake of hotfix, be extra-defensive about type checks and nullness.
+      if (storageConfigurationInfo != null
+          && storageConfigurationInfo.getStorageType()
+              == PolarisStorageConfigurationInfo.StorageType.S3
+          && storageConfigurationInfo instanceof AwsStorageConfigurationInfo
+          && ((AwsStorageConfigurationInfo) storageConfigurationInfo).getRegion() != null) {
+        if (!returnedCreds.containsKey(PolarisCredentialProperty.CLIENT_REGION.getPropertyName())) {
+          String storageConfigRegion =
+              ((AwsStorageConfigurationInfo) storageConfigurationInfo).getRegion();
+          LOGGER
+              .atWarn()
+              .addKeyValue("tableIdentifier", tableIdentifier)
+              .addKeyValue("storageConfigRegion", storageConfigRegion)
+              .log("Subscoping failed to set client.region; patching in BasePolarisCatalog");
+          // Make a copy of the map since we don't know its origins before we modify it.
+          returnedCreds = new HashMap<>(returnedCreds);
+          returnedCreds.put(
+              PolarisCredentialProperty.CLIENT_REGION.getPropertyName(), storageConfigRegion);
+        }
+      }
+    }
+    return returnedCreds;
   }
 
   /**

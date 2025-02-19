@@ -816,7 +816,9 @@ public class BasePolarisCatalog extends BaseMetastoreViewCatalog
   }
 
   private Map<String, String> patchClientRegionIfNeeded(
-      Map<String, String> returnedCreds, TableIdentifier tableIdentifier, Optional<PolarisEntity> storageInfo) {
+      TableIdentifier tableIdentifier,
+      Map<String, String> returnedCreds,
+      Optional<PolarisEntity> storageInfo) {
     // SNOW-1926859 - Temporarily patch CLIENT_REGION if it's not set by the underlying
     // integration. Remove this entire method and all calls to it once fixed.
     CatalogEntity castedEntity = CatalogEntity.of(storageInfo.get());
@@ -870,7 +872,7 @@ public class BasePolarisCatalog extends BaseMetastoreViewCatalog
         getLocationsAllowedToBeAccessed(tableMetadata),
         storageActions,
         storageInfo.get());
-    returnedCreds = patchClientRegionIfNeeded(returnedCreds, tableIdentifier, storageInfo);
+    returnedCreds = patchClientRegionIfNeeded(tableIdentifier, returnedCreds, storageInfo);
     return returnedCreds;
   }
 
@@ -1579,6 +1581,7 @@ public class BasePolarisCatalog extends BaseMetastoreViewCatalog
         storageInfoEntity
             .map(
                 storageInfo ->
+<<<<<<< HEAD
                     FileIOUtil.refreshCredentials(
                       realmContext,
                       entityManager,
@@ -1590,6 +1593,11 @@ public class BasePolarisCatalog extends BaseMetastoreViewCatalog
                       storageActions,
                       storageInfo)).orElse(Map.of());
     credentialsMap = patchClientRegionIfNeeded(credentialsMap, identifier, storageInfoEntity);
+=======
+                    refreshCredentials(identifier, storageActions, readLocations, storageInfo))
+            .orElse(Map.of());
+    credentialsMap = patchClientRegionIfNeeded(identifier, credentialsMap, storageInfoEntity);
+>>>>>>> c310a0e7 (Fix TableIdentifier argument)
 
     // Update the FileIO before we write the new metadata file
     // update with table properties in case there are table-level overrides

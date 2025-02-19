@@ -815,33 +815,10 @@ public class BasePolarisCatalog extends BaseMetastoreViewCatalog
         PolarisEntitySubType.TABLE, identifier, notificationRequest);
   }
 
-  @Override
-  public Map<String, String> getCredentialConfig(
-      TableIdentifier tableIdentifier,
-      TableMetadata tableMetadata,
-      Set<PolarisStorageActions> storageActions) {
-    Optional<PolarisEntity> storageInfo = findStorageInfo(tableIdentifier);
-    if (storageInfo.isEmpty()) {
-      LOGGER
-          .atWarn()
-          .addKeyValue("tableIdentifier", tableIdentifier)
-          .log("Table entity has no storage configuration in its hierarchy");
-      return Map.of();
-    }
-
-    Map<String, String> returnedCreds = FileIOUtil.refreshCredentials(
-        realmContext,
-        entityManager,
-        getCredentialVendor(),
-        metaStoreSession,
-        configurationStore,
-        tableIdentifier,
-        getLocationsAllowedToBeAccessed(tableMetadata),
-        storageActions,
-        storageInfo.get());
-
+  private Map<String, String> patchClientRegionIfNeeded(
+      Map<String, String> returnedCreds, TableIdentifier tableIdentifier, Optional<PolarisEntity> storageInfo) {
     // SNOW-1926859 - Temporarily patch CLIENT_REGION if it's not set by the underlying
-    // integration.
+    // integration. Remove this entire method and all calls to it once fixed.
     CatalogEntity castedEntity = CatalogEntity.of(storageInfo.get());
     if (returnedCreds != null && castedEntity != null) {
       PolarisStorageConfigurationInfo storageConfigurationInfo =
@@ -867,6 +844,33 @@ public class BasePolarisCatalog extends BaseMetastoreViewCatalog
         }
       }
     }
+    return returnedCreds;
+  }
+
+  @Override
+  public Map<String, String> getCredentialConfig(
+      TableIdentifier tableIdentifier,
+      TableMetadata tableMetadata,
+      Set<PolarisStorageActions> storageActions) {
+    Optional<PolarisEntity> storageInfo = findStorageInfo(tableIdentifier);
+    if (storageInfo.isEmpty()) {
+      LOGGER
+          .atWarn()
+          .addKeyValue("tableIdentifier", tableIdentifier)
+          .log("Table entity has no storage configuration in its hierarchy");
+      return Map.of();
+    }
+    Map<String, String> returnedCreds = FileIOUtil.refreshCredentials(
+        realmContext,
+        entityManager,
+        getCredentialVendor(),
+        metaStoreSession,
+        configurationStore,
+        tableIdentifier,
+        getLocationsAllowedToBeAccessed(tableMetadata),
+        storageActions,
+        storageInfo.get());
+    returnedCreds = patchClientRegionIfNeeded(returnedCreds, tableIdentifier, storageInfo);
     return returnedCreds;
   }
 
@@ -1570,16 +1574,30 @@ public class BasePolarisCatalog extends BaseMetastoreViewCatalog
       PolarisResolvedPathWrapper resolvedStorageEntity,
       Map<String, String> tableProperties,
       Set<PolarisStorageActions> storageActions) {
-    // Reload fileIO based on table specific context
-    FileIO fileIO =
-        fileIOFactory.loadFileIO(
-            realmContext,
-            ioImplClassName,
-            tableProperties,
-            identifier,
-            readLocations,
-            storageActions,
-            resolvedStorageEntity);
+    Optional<PolarisEntity> storageInfoEntity = FileIOUtil.findStorageInfoFromHierarchy(resolvedStorageEntity);
+    Map<String, String> credentialsMap =
+        storageInfoEntity
+            .map(
+                storageInfo ->
+                    FileIOUtil.refreshCredentials(
+                      realmContext,
+                      entityManager,
+                      getCredentialVendor(),
+                      metaStoreSession,
+                      configurationStore,
+                      identifier,
+                      readLocations,
+                      storageActions,
+                      storageInfo)).orElse(Map.of());
+    credentialsMap = patchClientRegionIfNeeded(credentialsMap, identifier, storageInfoEntity);
+
+    // Update the FileIO before we write the new metadata file
+    // update with table properties in case there are table-level overrides
+    // the credentials should always override table-level properties, since
+    // storage configuration will be found at whatever entity defines it
+    tableProperties.putAll(credentialsMap);
+    FileIO fileIO = null;
+    fileIO = loadFileIO(ioImplClassName, tableProperties);
     // ensure the new fileIO is closed when the catalog is closed
     closeableGroup.addCloseable(fileIO);
     return fileIO;

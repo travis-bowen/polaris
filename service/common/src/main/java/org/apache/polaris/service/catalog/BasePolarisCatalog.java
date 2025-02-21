@@ -1581,7 +1581,6 @@ public class BasePolarisCatalog extends BaseMetastoreViewCatalog
         storageInfoEntity
             .map(
                 storageInfo ->
-<<<<<<< HEAD
                     FileIOUtil.refreshCredentials(
                       realmContext,
                       entityManager,
@@ -1592,12 +1591,7 @@ public class BasePolarisCatalog extends BaseMetastoreViewCatalog
                       readLocations,
                       storageActions,
                       storageInfo)).orElse(Map.of());
-    credentialsMap = patchClientRegionIfNeeded(credentialsMap, identifier, storageInfoEntity);
-=======
-                    refreshCredentials(identifier, storageActions, readLocations, storageInfo))
-            .orElse(Map.of());
     credentialsMap = patchClientRegionIfNeeded(identifier, credentialsMap, storageInfoEntity);
->>>>>>> c310a0e7 (Fix TableIdentifier argument)
 
     // Update the FileIO before we write the new metadata file
     // update with table properties in case there are table-level overrides

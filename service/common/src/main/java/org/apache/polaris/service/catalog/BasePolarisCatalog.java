@@ -862,16 +862,17 @@ public class BasePolarisCatalog extends BaseMetastoreViewCatalog
           .log("Table entity has no storage configuration in its hierarchy");
       return Map.of();
     }
-    Map<String, String> returnedCreds = FileIOUtil.refreshCredentials(
-        realmContext,
-        entityManager,
-        getCredentialVendor(),
-        metaStoreSession,
-        configurationStore,
-        tableIdentifier,
-        getLocationsAllowedToBeAccessed(tableMetadata),
-        storageActions,
-        storageInfo.get());
+    Map<String, String> returnedCreds =
+        FileIOUtil.refreshCredentials(
+            realmContext,
+            entityManager,
+            getCredentialVendor(),
+            metaStoreSession,
+            configurationStore,
+            tableIdentifier,
+            getLocationsAllowedToBeAccessed(tableMetadata),
+            storageActions,
+            storageInfo.get());
     returnedCreds = patchClientRegionIfNeeded(tableIdentifier, returnedCreds, storageInfo);
     return returnedCreds;
   }
@@ -1576,21 +1577,23 @@ public class BasePolarisCatalog extends BaseMetastoreViewCatalog
       PolarisResolvedPathWrapper resolvedStorageEntity,
       Map<String, String> tableProperties,
       Set<PolarisStorageActions> storageActions) {
-    Optional<PolarisEntity> storageInfoEntity = FileIOUtil.findStorageInfoFromHierarchy(resolvedStorageEntity);
+    Optional<PolarisEntity> storageInfoEntity =
+        FileIOUtil.findStorageInfoFromHierarchy(resolvedStorageEntity);
     Map<String, String> credentialsMap =
         storageInfoEntity
             .map(
                 storageInfo ->
                     FileIOUtil.refreshCredentials(
-                      realmContext,
-                      entityManager,
-                      getCredentialVendor(),
-                      metaStoreSession,
-                      configurationStore,
-                      identifier,
-                      readLocations,
-                      storageActions,
-                      storageInfo)).orElse(Map.of());
+                        realmContext,
+                        entityManager,
+                        getCredentialVendor(),
+                        metaStoreSession,
+                        configurationStore,
+                        identifier,
+                        readLocations,
+                        storageActions,
+                        storageInfo))
+            .orElse(Map.of());
     credentialsMap = patchClientRegionIfNeeded(identifier, credentialsMap, storageInfoEntity);
 
     // Update the FileIO before we write the new metadata file

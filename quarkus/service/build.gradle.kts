@@ -47,6 +47,7 @@ dependencies {
   implementation("io.quarkus:quarkus-micrometer-registry-prometheus")
   implementation("io.quarkus:quarkus-opentelemetry")
   implementation("io.quarkus:quarkus-smallrye-context-propagation")
+  implementation("io.quarkus:quarkus-smallrye-fault-tolerance")
 
   implementation(libs.jakarta.enterprise.cdi.api)
   implementation(libs.jakarta.inject.api)

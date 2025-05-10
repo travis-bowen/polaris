@@ -27,7 +27,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.apache.polaris.core.PolarisDiagnostics;
 import org.apache.polaris.core.auth.AuthenticatedPolarisPrincipal;
 import org.apache.polaris.core.context.CallContext;
@@ -35,7 +34,6 @@ import org.apache.polaris.core.entity.PolarisBaseEntity;
 import org.apache.polaris.core.entity.PolarisEntityConstants;
 import org.apache.polaris.core.entity.PolarisEntitySubType;
 import org.apache.polaris.core.entity.PolarisEntityType;
-import org.apache.polaris.core.entity.PrincipalRoleEntity;
 import org.apache.polaris.core.persistence.PolarisEntityManager;
 import org.apache.polaris.core.persistence.PolarisResolvedPathWrapper;
 import org.apache.polaris.core.persistence.ResolvedPolarisEntity;
@@ -56,7 +54,6 @@ public class PolarisResolutionManifest implements PolarisResolutionManifestCatal
   private final PolarisEntityManager entityManager;
   private final CallContext callContext;
   private final SecurityContext securityContext;
-  private final AuthenticatedPolarisPrincipal authenticatedPrincipal;
   private final String catalogName;
   private final Resolver primaryResolver;
   private final PolarisDiagnostics diagnostics;
@@ -96,8 +93,6 @@ public class PolarisResolutionManifest implements PolarisResolutionManifestCatal
         "invalid_principal_type_for_resolution_manifest",
         "principal={}",
         securityContext.getUserPrincipal());
-    this.authenticatedPrincipal =
-        (AuthenticatedPolarisPrincipal) securityContext.getUserPrincipal();
 
     // TODO: Make the rootContainer lookup no longer optional in the persistence store.
     // For now, we'll try to resolve the rootContainer as "optional", and only if we fail to find
@@ -149,15 +144,11 @@ public class PolarisResolutionManifest implements PolarisResolutionManifestCatal
             != ResolverStatus.StatusEnum.CALLER_PRINCIPAL_DOES_NOT_EXIST,
         "caller_principal_does_not_exist_at_resolution_time");
 
-    // activated principal roles are known, add them to the call context
-    if (primaryResolverStatus.getStatus() == ResolverStatus.StatusEnum.SUCCESS) {
-      List<PrincipalRoleEntity> activatedPrincipalRoles =
-          primaryResolver.getResolvedCallerPrincipalRoles().stream()
-              .map(ce -> PrincipalRoleEntity.of(ce.getEntity()))
-              .collect(Collectors.toList());
-      this.authenticatedPrincipal.setActivatedPrincipalRoles(activatedPrincipalRoles);
-    }
     return primaryResolverStatus;
+  }
+
+  public boolean getIsPassthroughFacade() {
+    return primaryResolver.getIsPassthroughFacade();
   }
 
   @Override
@@ -180,8 +171,9 @@ public class PolarisResolutionManifest implements PolarisResolutionManifestCatal
    *     "optional", or if it was resolved but the subType doesn't match the specified subType.
    */
   @Override
-  public PolarisResolvedPathWrapper getResolvedPath(Object key, PolarisEntitySubType subType) {
-    return getResolvedPath(key, subType, false);
+  public PolarisResolvedPathWrapper getResolvedPath(
+      Object key, PolarisEntityType entityType, PolarisEntitySubType subType) {
+    return getResolvedPath(key, entityType, subType, false);
   }
 
   /**
@@ -211,7 +203,12 @@ public class PolarisResolutionManifest implements PolarisResolutionManifestCatal
     }
 
     List<ResolvedPolarisEntity> resolvedPath = passthroughResolver.getResolvedPath();
-    if (requestedPath.isOptional()) {
+    // If the catalog is a passthrough facade, we can go ahead and just return only as much of
+    // the parent path as was successfully found.
+    // TODO: For passthrough facade semantics, consider whether this should be where we generate
+    // the JIT-created entities that would get committed after we find them in the remote
+    // catalog.
+    if (requestedPath.isOptional() && !getIsPassthroughFacade()) {
       if (resolvedPath.size() != requestedPath.getEntityNames().size()) {
         LOGGER.debug(
             "Returning null for key {} due to size mismatch from getPassthroughResolvedPath "
@@ -237,7 +234,7 @@ public class PolarisResolutionManifest implements PolarisResolutionManifestCatal
    */
   @Override
   public PolarisResolvedPathWrapper getPassthroughResolvedPath(
-      Object key, PolarisEntitySubType subType) {
+      Object key, PolarisEntityType entityType, PolarisEntitySubType subType) {
     PolarisResolvedPathWrapper resolvedPath = getPassthroughResolvedPath(key);
     if (resolvedPath == null) {
       return null;
@@ -354,7 +351,12 @@ public class PolarisResolutionManifest implements PolarisResolutionManifestCatal
     // Return null for a partially-resolved "optional" path.
     ResolverPath requestedPath = addedPaths.get(index);
     List<ResolvedPolarisEntity> resolvedPath = primaryResolver.getResolvedPaths().get(index);
-    if (requestedPath.isOptional()) {
+    // If the catalog is a passthrough facade, we can go ahead and just return only as much of
+    // the parent path as was successfully found.
+    // TODO: For passthrough facade semantics, consider whether this should be where we generate
+    // the JIT-created entities that would get committed after we find them in the remote
+    // catalog.
+    if (requestedPath.isOptional() && !getIsPassthroughFacade()) {
       if (resolvedPath.size() != requestedPath.getEntityNames().size()) {
         return null;
       }
@@ -374,12 +376,21 @@ public class PolarisResolutionManifest implements PolarisResolutionManifestCatal
    *     "optional", or if it was resolved but the subType doesn't match the specified subType.
    */
   public PolarisResolvedPathWrapper getResolvedPath(
-      Object key, PolarisEntitySubType subType, boolean prependRootContainer) {
+      Object key,
+      PolarisEntityType entityType,
+      PolarisEntitySubType subType,
+      boolean prependRootContainer) {
     PolarisResolvedPathWrapper resolvedPath = getResolvedPath(key, prependRootContainer);
     if (resolvedPath == null) {
       return null;
     }
-    if (resolvedPath.getRawLeafEntity() != null
+    // In the case of a passthrough facade, we may have only resolved part of the parent path
+    // in which case the subtype wouldn't match; return the path anyways in this case.
+    //
+    // TODO: Reconcile how we'll handle "TABLE_NOT_FOUND" or "VIEW_NOT_FOUND" semantics
+    // against the remote catalog.
+    if (!getIsPassthroughFacade()
+        && resolvedPath.getRawLeafEntity() != null
         && subType != PolarisEntitySubType.ANY_SUBTYPE
         && resolvedPath.getRawLeafEntity().getSubType() != subType) {
       return null;

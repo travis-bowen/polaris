@@ -19,6 +19,7 @@
 package org.apache.polaris.service.quarkus.it;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.auth0.jwt.JWT;
 import com.auth0.jwt.algorithms.Algorithm;
@@ -28,10 +29,14 @@ import io.quarkus.test.junit.TestProfile;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Map;
+import org.apache.iceberg.exceptions.NotAuthorizedException;
+import org.apache.iceberg.rest.ErrorHandlers;
 import org.apache.iceberg.rest.HTTPClient;
 import org.apache.iceberg.rest.RESTClient;
 import org.apache.iceberg.rest.auth.AuthConfig;
+import org.apache.iceberg.rest.auth.AuthSession;
 import org.apache.iceberg.rest.auth.OAuth2Util;
+import org.apache.iceberg.rest.responses.OAuthTokenResponse;
 import org.apache.polaris.service.it.env.ClientCredentials;
 import org.apache.polaris.service.it.env.PolarisApiEndpoints;
 import org.apache.polaris.service.it.test.PolarisApplicationIntegrationTest;
@@ -54,13 +59,14 @@ public class QuarkusApplicationIntegrationTest extends PolarisApplicationIntegra
   }
 
   @Test
-  public void testIcebergRestApiRefreshToken(
+  public void testIcebergRestApiRefreshExpiredToken(
       PolarisApiEndpoints endpoints, ClientCredentials clientCredentials) throws IOException {
     String path = endpoints.catalogApiEndpoint() + "/v1/oauth/tokens";
     try (RESTClient client =
         HTTPClient.builder(Map.of())
             .withHeader(endpoints.realmHeaderName(), endpoints.realmId())
             .uri(path)
+            .withAuthSession(AuthSession.EMPTY)
             .build()) {
       String credentialString =
           clientCredentials.clientId() + ":" + clientCredentials.clientSecret();
@@ -80,6 +86,95 @@ public class QuarkusApplicationIntegrationTest extends PolarisApplicationIntegra
 
       assertThat(session.token()).isNotEqualTo(expiredToken); // implicit refresh
       assertThat(JWT.decode(session.token()).getExpiresAtAsInstant()).isAfter(Instant.EPOCH);
+    }
+  }
+
+  @Test
+  public void testIcebergRestApiRefreshValidToken(
+      PolarisApiEndpoints endpoints, ClientCredentials clientCredentials) throws IOException {
+    String path = endpoints.catalogApiEndpoint() + "/v1/oauth/tokens";
+    try (RESTClient client =
+        HTTPClient.builder(Map.of())
+            .withHeader(endpoints.realmHeaderName(), endpoints.realmId())
+            .uri(path)
+            .withAuthSession(AuthSession.EMPTY)
+            .build()) {
+      var response =
+          client.postForm(
+              path,
+              Map.of(
+                  "grant_type",
+                  "client_credentials",
+                  "scope",
+                  "PRINCIPAL_ROLE:ALL",
+                  "client_id",
+                  clientCredentials.clientId(),
+                  "client_secret",
+                  clientCredentials.clientSecret()),
+              OAuthTokenResponse.class,
+              Map.of(),
+              ErrorHandlers.oauthErrorHandler());
+      String token = response.token();
+      var authConfig =
+          AuthConfig.builder()
+              .credential(clientCredentials.clientId() + ":" + clientCredentials.clientSecret())
+              .scope("PRINCIPAL_ROLE:ALL")
+              .oauth2ServerUri(path)
+              .token(token)
+              .build();
+      var parentSession = new OAuth2Util.AuthSession(Map.of(), authConfig);
+      var session = OAuth2Util.AuthSession.fromAccessToken(client, null, token, 0L, parentSession);
+      session.refresh(client);
+      assertThat(session.token()).isNotEqualTo(token);
+      assertThat(JWT.decode(session.token()).getExpiresAtAsInstant()).isAfter(Instant.now());
+    }
+  }
+
+  @Test
+  public void testIcebergRestApiInvalidToken(
+      PolarisApiEndpoints endpoints, ClientCredentials clientCredentials) throws IOException {
+    String path = endpoints.catalogApiEndpoint() + "/v1/oauth/tokens";
+    try (RESTClient client =
+        HTTPClient.builder(Map.of())
+            .withHeader(endpoints.realmHeaderName(), endpoints.realmId())
+            .uri(path)
+            .withAuthSession(AuthSession.EMPTY)
+            .build()) {
+      var response =
+          client.postForm(
+              path,
+              Map.of(
+                  "grant_type",
+                  "client_credentials",
+                  "scope",
+                  "PRINCIPAL_ROLE:ALL",
+                  "client_id",
+                  clientCredentials.clientId(),
+                  "client_secret",
+                  clientCredentials.clientSecret()),
+              OAuthTokenResponse.class,
+              Map.of(),
+              ErrorHandlers.oauthErrorHandler());
+      String token = response.token();
+      // mimics OAUth2Util.AuthSession refreshing the token
+      assertThatThrownBy(
+              () ->
+                  client.postForm(
+                      path,
+                      Map.of(
+                          "grant_type",
+                          "urn:ietf:params:oauth:grant-type:token-exchange",
+                          "scope",
+                          "PRINCIPAL_ROLE:ALL",
+                          "subject_token",
+                          "invalid",
+                          "subject_token_type",
+                          "urn:ietf:params:oauth:token-type:access_token"),
+                      OAuthTokenResponse.class,
+                      Map.of("Authorization", "Bearer " + token),
+                      ErrorHandlers.oauthErrorHandler()))
+          .isInstanceOf(NotAuthorizedException.class)
+          .hasMessageContaining("invalid_client");
     }
   }
 }

@@ -27,7 +27,6 @@ import jakarta.ws.rs.ProcessingException;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.client.Invocation;
 import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.core.Response.Status;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Path;
@@ -57,14 +56,12 @@ import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.io.ResolvingFileIO;
 import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
-import org.apache.iceberg.rest.responses.ErrorResponse;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.EnvironmentUtil;
 import org.apache.polaris.core.admin.model.AwsStorageConfigInfo;
 import org.apache.polaris.core.admin.model.Catalog;
 import org.apache.polaris.core.admin.model.CatalogProperties;
 import org.apache.polaris.core.admin.model.CatalogRole;
-import org.apache.polaris.core.admin.model.Catalogs;
 import org.apache.polaris.core.admin.model.ExternalCatalog;
 import org.apache.polaris.core.admin.model.FileStorageConfigInfo;
 import org.apache.polaris.core.admin.model.PolarisCatalog;
@@ -88,8 +85,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * @implSpec This test expects the server to be configured with the following features configured:
@@ -208,7 +203,6 @@ public class PolarisApplicationIntegrationTest {
                 .setStorageConfigInfo(storageConfig)
                 .build()
             : ExternalCatalog.builder()
-                .setRemoteUrl("http://faraway.com")
                 .setName(catalogName)
                 .setType(catalogType)
                 .setProperties(props)
@@ -377,14 +371,14 @@ public class PolarisApplicationIntegrationTest {
                           TableIdentifier.of(ns, "the_table"),
                           new Schema(
                               List.of(
-                                  Types.NestedField.of(
-                                      1, false, "theField", Types.StringType.get()))))
+                                  Types.NestedField.required(
+                                      1, "theField", Types.StringType.get()))))
                       .withLocation("file:///tmp/tables")
                       .withSortOrder(SortOrder.unsorted())
                       .withPartitionSpec(PartitionSpec.unpartitioned())
                       .create())
           .isInstanceOf(BadRequestException.class)
-          .hasMessage("Malformed request: Cannot create table on external catalogs.");
+          .hasMessage("Malformed request: Cannot create table on static-facade external catalogs.");
     }
   }
 
@@ -405,8 +399,8 @@ public class PolarisApplicationIntegrationTest {
                           TableIdentifier.of(ns, "the_table"),
                           new Schema(
                               List.of(
-                                  Types.NestedField.of(
-                                      1, false, "theField", Types.StringType.get()))))
+                                  Types.NestedField.required(
+                                      1, "theField", Types.StringType.get()))))
                       .withSortOrder(SortOrder.unsorted())
                       .withPartitionSpec(PartitionSpec.unpartitioned())
                       .withProperties(Map.of("write.data.path", "s3://my-bucket/path/to/data"))
@@ -422,8 +416,8 @@ public class PolarisApplicationIntegrationTest {
                           TableIdentifier.of(ns, "the_table"),
                           new Schema(
                               List.of(
-                                  Types.NestedField.of(
-                                      1, false, "theField", Types.StringType.get()))))
+                                  Types.NestedField.required(
+                                      1, "theField", Types.StringType.get()))))
                       .withSortOrder(SortOrder.unsorted())
                       .withPartitionSpec(PartitionSpec.unpartitioned())
                       .withProperties(Map.of("write.metadata.path", "s3://my-bucket/path/to/data"))
@@ -460,8 +454,7 @@ public class PolarisApplicationIntegrationTest {
               .assignUUID()
               .addPartitionSpec(PartitionSpec.unpartitioned())
               .addSortOrder(SortOrder.unsorted())
-              .addSchema(
-                  new Schema(Types.NestedField.of(1, false, "col1", Types.StringType.get())), 1)
+              .addSchema(new Schema(Types.NestedField.required(1, "col1", Types.StringType.get())))
               .build();
       TableMetadataParser.write(tableMetadata, fileIo.newOutputFile(metadataLocation));
 
@@ -497,14 +490,14 @@ public class PolarisApplicationIntegrationTest {
       String location = baseLocation.resolve("testIcebergUpdateTableInExternalCatalog").toString();
       String metadataLocation = location + "/metadata/000001-494949494949494949.metadata.json";
 
-      Types.NestedField col1 = Types.NestedField.of(1, false, "col1", Types.StringType.get());
+      Types.NestedField col1 = Types.NestedField.required(1, "col1", Types.StringType.get());
       TableMetadata tableMetadata =
           TableMetadata.buildFromEmpty()
               .setLocation(location)
               .assignUUID()
               .addPartitionSpec(PartitionSpec.unpartitioned())
               .addSortOrder(SortOrder.unsorted())
-              .addSchema(new Schema(col1), 1)
+              .addSchema(new Schema(col1))
               .build();
       TableMetadataParser.write(tableMetadata, fileIo.newOutputFile(metadataLocation));
 
@@ -522,7 +515,7 @@ public class PolarisApplicationIntegrationTest {
                               10L))
                       .commit())
           .isInstanceOf(BadRequestException.class)
-          .hasMessage("Malformed request: Cannot update table on external catalogs.");
+          .hasMessage("Malformed request: Cannot update table on static-facade external catalogs.");
     }
   }
 
@@ -552,8 +545,7 @@ public class PolarisApplicationIntegrationTest {
               .assignUUID()
               .addPartitionSpec(PartitionSpec.unpartitioned())
               .addSortOrder(SortOrder.unsorted())
-              .addSchema(
-                  new Schema(Types.NestedField.of(1, false, "col1", Types.StringType.get())), 1)
+              .addSchema(new Schema(Types.NestedField.required(1, "col1", Types.StringType.get())))
               .build();
       TableMetadataParser.write(tableMetadata, fileIo.newOutputFile(metadataLocation));
 
@@ -650,64 +642,6 @@ public class PolarisApplicationIntegrationTest {
                   // asserts that one of those things happens.
                 }
               });
-    }
-  }
-
-  @Test
-  public void testNoRealmHeader() {
-    try (Response response =
-        managementApi
-            .request(
-                "v1/catalogs", Map.of(), Map.of(), Map.of("Authorization", "Bearer " + authToken))
-            .get()) {
-      assertThat(response.getStatus()).isEqualTo(Status.OK.getStatusCode());
-      Catalogs roles = response.readEntity(Catalogs.class);
-      assertThat(roles.getCatalogs()).extracting(Catalog::getName).contains(internalCatalogName);
-    }
-  }
-
-  @ParameterizedTest
-  @ValueSource(strings = {"POLARIS", "OTHER"})
-  public void testRealmHeaderValid(String realmId) {
-    String catalogName = client.newEntityName("testRealmHeaderValid" + realmId);
-    createCatalog(catalogName, Catalog.TypeEnum.INTERNAL, principalRoleName);
-    try (Response response =
-        managementApi
-            .request(
-                "v1/catalogs",
-                Map.of(),
-                Map.of(),
-                Map.of(
-                    "Authorization", "Bearer " + authToken, endpoints.realmHeaderName(), realmId))
-            .get()) {
-      assertThat(response.getStatus()).isEqualTo(Status.OK.getStatusCode());
-      Catalogs catalogsList = response.readEntity(Catalogs.class);
-      if ("POLARIS".equals(realmId)) {
-        assertThat(catalogsList.getCatalogs()).extracting(Catalog::getName).contains(catalogName);
-      } else {
-        assertThat(catalogsList.getCatalogs()).isEmpty();
-      }
-    }
-  }
-
-  @Test
-  public void testRealmHeaderInvalid() {
-    try (Response response =
-        managementApi
-            .request(
-                "v1/catalogs",
-                Map.of(),
-                Map.of(),
-                Map.of(
-                    "Authorization", "Bearer " + authToken, endpoints.realmHeaderName(), "INVALID"))
-            .get()) {
-      assertThat(response.getStatus()).isEqualTo(Status.NOT_FOUND.getStatusCode());
-      assertThat(response.readEntity(ErrorResponse.class))
-          .extracting(ErrorResponse::code, ErrorResponse::type, ErrorResponse::message)
-          .containsExactly(
-              Status.NOT_FOUND.getStatusCode(),
-              "UnresolvableRealmContextException",
-              "Unknown realm: INVALID");
     }
   }
 }

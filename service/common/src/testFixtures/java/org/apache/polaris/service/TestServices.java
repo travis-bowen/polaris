@@ -37,16 +37,19 @@ import org.apache.polaris.core.context.CallContext;
 import org.apache.polaris.core.context.RealmContext;
 import org.apache.polaris.core.entity.PolarisEntity;
 import org.apache.polaris.core.entity.PrincipalEntity;
+import org.apache.polaris.core.persistence.BasePersistence;
 import org.apache.polaris.core.persistence.MetaStoreManagerFactory;
 import org.apache.polaris.core.persistence.PolarisEntityManager;
 import org.apache.polaris.core.persistence.PolarisMetaStoreManager;
-import org.apache.polaris.core.persistence.PolarisMetaStoreSession;
+import org.apache.polaris.core.persistence.dao.entity.CreatePrincipalResult;
+import org.apache.polaris.core.secrets.UserSecretsManager;
+import org.apache.polaris.core.secrets.UserSecretsManagerFactory;
 import org.apache.polaris.service.admin.PolarisServiceImpl;
 import org.apache.polaris.service.admin.api.PolarisCatalogsApi;
-import org.apache.polaris.service.catalog.DefaultIcebergCatalogPrefixParser;
-import org.apache.polaris.service.catalog.IcebergCatalogAdapter;
+import org.apache.polaris.service.catalog.DefaultCatalogPrefixParser;
 import org.apache.polaris.service.catalog.api.IcebergRestCatalogApi;
-import org.apache.polaris.service.catalog.api.IcebergRestCatalogApiService;
+import org.apache.polaris.service.catalog.api.IcebergRestConfigurationApi;
+import org.apache.polaris.service.catalog.iceberg.IcebergCatalogAdapter;
 import org.apache.polaris.service.catalog.io.FileIOFactory;
 import org.apache.polaris.service.catalog.io.MeasuredFileIOFactory;
 import org.apache.polaris.service.config.DefaultConfigurationStore;
@@ -54,6 +57,7 @@ import org.apache.polaris.service.config.RealmEntityManagerFactory;
 import org.apache.polaris.service.context.CallContextCatalogFactory;
 import org.apache.polaris.service.context.PolarisCallContextCatalogFactory;
 import org.apache.polaris.service.persistence.InMemoryPolarisMetaStoreManagerFactory;
+import org.apache.polaris.service.secrets.UnsafeInMemorySecretsManagerFactory;
 import org.apache.polaris.service.storage.PolarisStorageIntegrationProviderImpl;
 import org.apache.polaris.service.task.TaskExecutor;
 import org.assertj.core.util.TriFunction;
@@ -63,6 +67,7 @@ import software.amazon.awssdk.services.sts.StsClient;
 public record TestServices(
     PolarisCatalogsApi catalogsApi,
     IcebergRestCatalogApi restApi,
+    IcebergRestConfigurationApi restConfigurationApi,
     PolarisConfigurationStore configurationStore,
     PolarisDiagnostics polarisDiagnostics,
     RealmEntityManagerFactory entityManagerFactory,
@@ -130,12 +135,10 @@ public record TestServices(
               storageIntegrationProvider, polarisDiagnostics);
       RealmEntityManagerFactory realmEntityManagerFactory =
           new RealmEntityManagerFactory(metaStoreManagerFactory) {};
+      UserSecretsManagerFactory userSecretsManagerFactory =
+          new UnsafeInMemorySecretsManagerFactory();
 
-      PolarisEntityManager entityManager =
-          realmEntityManagerFactory.getOrCreateEntityManager(realmContext);
-      PolarisMetaStoreManager metaStoreManager =
-          metaStoreManagerFactory.getOrCreateMetaStoreManager(realmContext);
-      PolarisMetaStoreSession metaStoreSession =
+      BasePersistence metaStoreSession =
           metaStoreManagerFactory.getOrCreateSessionSupplier(realmContext).get();
       CallContext callContext =
           new CallContext() {
@@ -158,6 +161,13 @@ public record TestServices(
               return new HashMap<>();
             }
           };
+      CallContext.setCurrentContext(callContext);
+      PolarisEntityManager entityManager =
+          realmEntityManagerFactory.getOrCreateEntityManager(realmContext);
+      PolarisMetaStoreManager metaStoreManager =
+          metaStoreManagerFactory.getOrCreateMetaStoreManager(realmContext);
+      UserSecretsManager userSecretsManager =
+          userSecretsManagerFactory.getOrCreateUserSecretsManager(realmContext);
 
       FileIOFactory fileIOFactory =
           fileIOFactorySupplier.apply(
@@ -167,24 +177,27 @@ public record TestServices(
 
       CallContextCatalogFactory callContextFactory =
           new PolarisCallContextCatalogFactory(
-              realmEntityManagerFactory, metaStoreManagerFactory, taskExecutor, fileIOFactory);
+              realmEntityManagerFactory,
+              metaStoreManagerFactory,
+              userSecretsManagerFactory,
+              taskExecutor,
+              fileIOFactory);
 
-      IcebergRestCatalogApiService service =
+      IcebergCatalogAdapter service =
           new IcebergCatalogAdapter(
               realmContext,
               callContext,
               callContextFactory,
               entityManager,
               metaStoreManager,
-              metaStoreSession,
-              configurationStore,
-              polarisDiagnostics,
+              userSecretsManager,
               authorizer,
-              new DefaultIcebergCatalogPrefixParser());
+              new DefaultCatalogPrefixParser());
 
       IcebergRestCatalogApi restApi = new IcebergRestCatalogApi(service);
+      IcebergRestConfigurationApi restConfigurationApi = new IcebergRestConfigurationApi(service);
 
-      PolarisMetaStoreManager.CreatePrincipalResult createdPrincipal =
+      CreatePrincipalResult createdPrincipal =
           metaStoreManager.createPrincipal(
               callContext.getPolarisCallContext(),
               new PrincipalEntity.Builder()
@@ -222,11 +235,16 @@ public record TestServices(
       PolarisCatalogsApi catalogsApi =
           new PolarisCatalogsApi(
               new PolarisServiceImpl(
-                  realmEntityManagerFactory, metaStoreManagerFactory, authorizer, callContext));
+                  realmEntityManagerFactory,
+                  metaStoreManagerFactory,
+                  userSecretsManagerFactory,
+                  authorizer,
+                  callContext));
 
       return new TestServices(
           catalogsApi,
           restApi,
+          restConfigurationApi,
           configurationStore,
           polarisDiagnostics,
           realmEntityManagerFactory,

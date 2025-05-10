@@ -28,10 +28,10 @@ The tool must be built with the necessary JDBC drivers to access the metastore d
 example, to build the tool with support for Postgres, run the following:
 
 ```shell
-./gradlew clean :polaris-quarkus-admin:build \
-  -Dquarkus.container-image.build=true \
-  -PeclipseLinkDeps=org.postgresql:postgresql:42.7.4 \
-  --no-build-cache
+./gradlew \
+  :polaris-quarkus-admin:assemble \
+  :polaris-quarkus-admin:quarkusAppPartsBuild --rerun \
+  -Dquarkus.container-image.build=true
 ```
 
 The above command will generate:

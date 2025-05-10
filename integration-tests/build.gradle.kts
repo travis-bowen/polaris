@@ -22,6 +22,7 @@ plugins { id("polaris-server") }
 dependencies {
   implementation(project(":polaris-core"))
   implementation(project(":polaris-api-management-model"))
+  implementation(project(":polaris-api-catalog-service"))
 
   implementation(libs.jakarta.ws.rs.api)
   implementation(libs.guava)
@@ -52,7 +53,7 @@ dependencies {
 
   implementation("org.apache.iceberg:iceberg-spark-3.5_2.12")
   implementation("org.apache.iceberg:iceberg-spark-extensions-3.5_2.12")
-  implementation("org.apache.spark:spark-sql_2.12:3.5.4") {
+  implementation("org.apache.spark:spark-sql_2.12:3.5.5") {
     // exclude log4j dependencies
     exclude("org.apache.logging.log4j", "log4j-slf4j2-impl")
     exclude("org.apache.logging.log4j", "log4j-api")
@@ -66,4 +67,17 @@ dependencies {
   compileOnly("org.junit.jupiter:junit-jupiter-engine")
   implementation(libs.assertj.core)
   implementation(libs.mockito.core)
+}
+
+copiedCodeChecks {
+  addDefaultContentTypes()
+
+  licenseFile = project.layout.projectDirectory.file("src/main/resources/META-INF/LICENSE")
+
+  scanDirectories {
+    register("integration-tests") {
+      srcDir(".")
+      include("*")
+    }
+  }
 }

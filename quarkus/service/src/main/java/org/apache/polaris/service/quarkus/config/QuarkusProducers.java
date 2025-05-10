@@ -18,12 +18,12 @@
  */
 package org.apache.polaris.service.quarkus.config;
 
-import io.quarkus.runtime.StartupEvent;
 import io.smallrye.common.annotation.Identifier;
 import io.smallrye.context.SmallRyeManagedExecutor;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.RequestScoped;
 import jakarta.enterprise.event.Observes;
+import jakarta.enterprise.event.Startup;
 import jakarta.enterprise.inject.Any;
 import jakarta.enterprise.inject.Disposes;
 import jakarta.enterprise.inject.Instance;
@@ -41,27 +41,35 @@ import org.apache.polaris.core.auth.PolarisAuthorizerImpl;
 import org.apache.polaris.core.config.PolarisConfigurationStore;
 import org.apache.polaris.core.context.CallContext;
 import org.apache.polaris.core.context.RealmContext;
+import org.apache.polaris.core.persistence.BasePersistence;
 import org.apache.polaris.core.persistence.MetaStoreManagerFactory;
 import org.apache.polaris.core.persistence.PolarisEntityManager;
 import org.apache.polaris.core.persistence.PolarisMetaStoreManager;
-import org.apache.polaris.core.persistence.PolarisMetaStoreSession;
-import org.apache.polaris.core.persistence.cache.EntityCache;
+import org.apache.polaris.core.persistence.bootstrap.RootCredentialsSet;
+import org.apache.polaris.core.secrets.UserSecretsManager;
+import org.apache.polaris.core.secrets.UserSecretsManagerFactory;
 import org.apache.polaris.core.storage.cache.StorageCredentialCache;
 import org.apache.polaris.service.auth.ActiveRolesProvider;
+import org.apache.polaris.service.auth.AuthenticationType;
 import org.apache.polaris.service.auth.Authenticator;
+import org.apache.polaris.service.auth.PrincipalAuthInfo;
+import org.apache.polaris.service.auth.TokenBroker;
 import org.apache.polaris.service.auth.TokenBrokerFactory;
 import org.apache.polaris.service.catalog.api.IcebergRestOAuth2ApiService;
 import org.apache.polaris.service.catalog.io.FileIOFactory;
+import org.apache.polaris.service.config.RealmEntityManagerFactory;
 import org.apache.polaris.service.context.RealmContextConfiguration;
 import org.apache.polaris.service.context.RealmContextFilter;
 import org.apache.polaris.service.context.RealmContextResolver;
-import org.apache.polaris.service.persistence.InMemoryPolarisMetaStoreManagerFactory;
 import org.apache.polaris.service.quarkus.auth.QuarkusAuthenticationConfiguration;
+import org.apache.polaris.service.quarkus.auth.QuarkusAuthenticationRealmConfiguration;
+import org.apache.polaris.service.quarkus.auth.external.tenant.OidcTenantResolver;
 import org.apache.polaris.service.quarkus.catalog.io.QuarkusFileIOConfiguration;
 import org.apache.polaris.service.quarkus.context.QuarkusRealmContextConfiguration;
 import org.apache.polaris.service.quarkus.persistence.QuarkusPersistenceConfiguration;
 import org.apache.polaris.service.quarkus.ratelimiter.QuarkusRateLimiterFilterConfiguration;
 import org.apache.polaris.service.quarkus.ratelimiter.QuarkusTokenBucketConfiguration;
+import org.apache.polaris.service.quarkus.secrets.QuarkusSecretsManagerConfiguration;
 import org.apache.polaris.service.ratelimiter.RateLimiter;
 import org.apache.polaris.service.ratelimiter.TokenBucketFactory;
 import org.apache.polaris.service.task.TaskHandlerConfiguration;
@@ -113,7 +121,7 @@ public class QuarkusProducers {
       PolarisConfigurationStore configurationStore,
       MetaStoreManagerFactory metaStoreManagerFactory,
       Clock clock) {
-    PolarisMetaStoreSession metaStoreSession =
+    BasePersistence metaStoreSession =
         metaStoreManagerFactory.getOrCreateSessionSupplier(realmContext).get();
     return new PolarisCallContext(metaStoreSession, diagServices, configurationStore, clock);
   }
@@ -150,16 +158,25 @@ public class QuarkusProducers {
     return metaStoreManagerFactories.select(Identifier.Literal.of(config.type())).get();
   }
 
+  @Produces
+  public UserSecretsManagerFactory userSecretsManagerFactory(
+      QuarkusSecretsManagerConfiguration config,
+      @Any Instance<UserSecretsManagerFactory> userSecretsManagerFactories) {
+    return userSecretsManagerFactories.select(Identifier.Literal.of(config.type())).get();
+  }
+
   /**
    * Eagerly initialize the in-memory default realm on startup, so that users can check the
    * credentials printed to stdout immediately.
    */
-  public void maybeInitializeInMemoryRealm(
-      @Observes StartupEvent event,
+  public void maybeBootstrap(
+      @Observes Startup event,
       MetaStoreManagerFactory factory,
+      QuarkusPersistenceConfiguration config,
       RealmContextConfiguration realmContextConfiguration) {
-    if (factory instanceof InMemoryPolarisMetaStoreManagerFactory) {
-      ((InMemoryPolarisMetaStoreManagerFactory) factory).onStartup(realmContextConfiguration);
+    if (config.isAutoBootstrap()) {
+      RootCredentialsSet rootCredentialsSet = RootCredentialsSet.fromEnvironment();
+      factory.bootstrapRealms(realmContextConfiguration.realms(), rootCredentialsSet);
     }
   }
 
@@ -177,24 +194,36 @@ public class QuarkusProducers {
   }
 
   @Produces
-  public Authenticator<String, AuthenticatedPolarisPrincipal> authenticator(
-      QuarkusAuthenticationConfiguration config,
-      @Any Instance<Authenticator<String, AuthenticatedPolarisPrincipal>> authenticators) {
+  @RequestScoped
+  public Authenticator<PrincipalAuthInfo, AuthenticatedPolarisPrincipal> authenticator(
+      QuarkusAuthenticationRealmConfiguration config,
+      @Any
+          Instance<Authenticator<PrincipalAuthInfo, AuthenticatedPolarisPrincipal>>
+              authenticators) {
     return authenticators.select(Identifier.Literal.of(config.authenticator().type())).get();
   }
 
   @Produces
+  @RequestScoped
   public IcebergRestOAuth2ApiService icebergRestOAuth2ApiService(
-      QuarkusAuthenticationConfiguration config,
+      QuarkusAuthenticationRealmConfiguration config,
       @Any Instance<IcebergRestOAuth2ApiService> services) {
-    return services.select(Identifier.Literal.of(config.tokenService().type())).get();
+    String type =
+        config.type() == AuthenticationType.EXTERNAL ? "disabled" : config.tokenService().type();
+    return services.select(Identifier.Literal.of(type)).get();
   }
 
   @Produces
-  public TokenBrokerFactory tokenBrokerFactory(
-      QuarkusAuthenticationConfiguration config,
+  @RequestScoped
+  public TokenBroker tokenBroker(
+      QuarkusAuthenticationRealmConfiguration config,
+      RealmContext realmContext,
       @Any Instance<TokenBrokerFactory> tokenBrokerFactories) {
-    return tokenBrokerFactories.select(Identifier.Literal.of(config.tokenBroker().type())).get();
+    String type =
+        config.type() == AuthenticationType.EXTERNAL ? "none" : config.tokenBroker().type();
+    TokenBrokerFactory tokenBrokerFactory =
+        tokenBrokerFactories.select(Identifier.Literal.of(type)).get();
+    return tokenBrokerFactory.apply(realmContext);
   }
 
   // other beans
@@ -213,13 +242,6 @@ public class QuarkusProducers {
 
   @Produces
   @RequestScoped
-  public EntityCache entityCache(
-      RealmContext realmContext, MetaStoreManagerFactory metaStoreManagerFactory) {
-    return metaStoreManagerFactory.getOrCreateEntityCache(realmContext);
-  }
-
-  @Produces
-  @RequestScoped
   public PolarisMetaStoreManager polarisMetaStoreManager(
       RealmContext realmContext, MetaStoreManagerFactory metaStoreManagerFactory) {
     return metaStoreManagerFactory.getOrCreateMetaStoreManager(realmContext);
@@ -227,7 +249,14 @@ public class QuarkusProducers {
 
   @Produces
   @RequestScoped
-  public PolarisMetaStoreSession polarisMetaStoreSession(
+  public UserSecretsManager userSecretsManager(
+      RealmContext realmContext, UserSecretsManagerFactory userSecretsManagerFactory) {
+    return userSecretsManagerFactory.getOrCreateUserSecretsManager(realmContext);
+  }
+
+  @Produces
+  @RequestScoped
+  public BasePersistence polarisMetaStoreSession(
       RealmContext realmContext, MetaStoreManagerFactory metaStoreManagerFactory) {
     return metaStoreManagerFactory.getOrCreateSessionSupplier(realmContext).get();
   }
@@ -235,17 +264,29 @@ public class QuarkusProducers {
   @Produces
   @RequestScoped
   public PolarisEntityManager polarisEntityManager(
-      PolarisMetaStoreManager polarisMetaStoreManager,
-      StorageCredentialCache credentialCache,
-      EntityCache entityCache) {
-    return new PolarisEntityManager(polarisMetaStoreManager, credentialCache, entityCache);
+      RealmContext realmContext, RealmEntityManagerFactory factory) {
+    return factory.getOrCreateEntityManager(realmContext);
+  }
+
+  @Produces
+  @RequestScoped
+  public QuarkusAuthenticationRealmConfiguration realmAuthConfig(
+      QuarkusAuthenticationConfiguration config, RealmContext realmContext) {
+    return config.forRealm(realmContext);
   }
 
   @Produces
   public ActiveRolesProvider activeRolesProvider(
-      @ConfigProperty(name = "polaris.active-roles-provider.type") String persistenceType,
+      @ConfigProperty(name = "polaris.active-roles-provider.type") String activeRolesProviderType,
       @Any Instance<ActiveRolesProvider> activeRolesProviders) {
-    return activeRolesProviders.select(Identifier.Literal.of(persistenceType)).get();
+    return activeRolesProviders.select(Identifier.Literal.of(activeRolesProviderType)).get();
+  }
+
+  @Produces
+  public OidcTenantResolver oidcTenantResolver(
+      org.apache.polaris.service.quarkus.auth.external.OidcConfiguration config,
+      @Any Instance<OidcTenantResolver> resolvers) {
+    return resolvers.select(Identifier.Literal.of(config.tenantResolver())).get();
   }
 
   public void closeTaskExecutor(@Disposes @Identifier("task-executor") ManagedExecutor executor) {

@@ -37,7 +37,6 @@ import org.apache.polaris.core.context.RealmContext;
 import org.apache.polaris.core.entity.PolarisEntity;
 import org.apache.polaris.core.persistence.MetaStoreManagerFactory;
 import org.apache.polaris.core.persistence.PolarisEntityManager;
-import org.apache.polaris.core.persistence.PolarisMetaStoreSession;
 import org.apache.polaris.core.persistence.PolarisResolvedPathWrapper;
 import org.apache.polaris.core.storage.PolarisCredentialVendor;
 import org.apache.polaris.core.storage.PolarisStorageActions;
@@ -83,8 +82,6 @@ public class DefaultFileIOFactory implements FileIOFactory {
         realmEntityManagerFactory.getOrCreateEntityManager(realmContext);
     PolarisCredentialVendor credentialVendor =
         metaStoreManagerFactory.getOrCreateMetaStoreManager(realmContext);
-    PolarisMetaStoreSession metaStoreSession =
-        metaStoreManagerFactory.getOrCreateSessionSupplier(realmContext).get();
 
     // Get subcoped creds
     properties = new HashMap<>(properties);
@@ -117,6 +114,7 @@ public class DefaultFileIOFactory implements FileIOFactory {
   @VisibleForTesting
   FileIO loadFileIOInternal(
       @Nonnull String ioImplClassName, @Nonnull Map<String, String> properties) {
-    return CatalogUtil.loadFileIO(ioImplClassName, properties, new Configuration());
+    return new ExceptionMappingFileIO(
+        CatalogUtil.loadFileIO(ioImplClassName, properties, new Configuration()));
   }
 }

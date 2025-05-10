@@ -28,16 +28,18 @@
     <class>org.apache.polaris.jpa.models.ModelEntityChangeTracking</class>
     <class>org.apache.polaris.jpa.models.ModelEntityDropped</class>
     <class>org.apache.polaris.jpa.models.ModelGrantRecord</class>
+    <class>org.apache.polaris.jpa.models.ModelPolicyMappingRecord</class>
     <class>org.apache.polaris.jpa.models.ModelPrincipalSecrets</class>
     <class>org.apache.polaris.jpa.models.ModelSequenceId</class>
     <shared-cache-mode>NONE</shared-cache-mode>
     <properties>
-      <property name="jakarta.persistence.jdbc.url"
-        value="jdbc:postgresql://postgres:5432/{realm}"/>
+      <property name="jakarta.persistence.jdbc.url" value="jdbc:postgresql://postgres:5432/{realm}"/>
       <property name="jakarta.persistence.jdbc.user" value="postgres"/>
       <property name="jakarta.persistence.jdbc.password" value="postgres"/>
       <property name="jakarta.persistence.schema-generation.database.action" value="create"/>
       <property name="eclipselink.persistence-context.flush-mode" value="auto"/>
+      <property name="eclipselink.session.customizer" value="org.apache.polaris.extension.persistence.impl.eclipselink.PolarisEclipseLinkSessionCustomizer"/>
+      <property name="eclipselink.transaction.join-existing" value="true"/>
     </properties>
   </persistence-unit>
 </persistence>

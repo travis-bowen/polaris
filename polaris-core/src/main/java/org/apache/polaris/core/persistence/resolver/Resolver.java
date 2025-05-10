@@ -33,6 +33,7 @@ import java.util.stream.Collectors;
 import org.apache.polaris.core.PolarisCallContext;
 import org.apache.polaris.core.PolarisDiagnostics;
 import org.apache.polaris.core.auth.AuthenticatedPolarisPrincipal;
+import org.apache.polaris.core.entity.CatalogEntity;
 import org.apache.polaris.core.entity.PolarisBaseEntity;
 import org.apache.polaris.core.entity.PolarisChangeTrackingVersions;
 import org.apache.polaris.core.entity.PolarisEntityConstants;
@@ -41,12 +42,12 @@ import org.apache.polaris.core.entity.PolarisEntityType;
 import org.apache.polaris.core.entity.PolarisGrantRecord;
 import org.apache.polaris.core.entity.PolarisPrivilege;
 import org.apache.polaris.core.persistence.PolarisMetaStoreManager;
-import org.apache.polaris.core.persistence.PolarisMetaStoreManager.ChangeTrackingResult;
-import org.apache.polaris.core.persistence.PolarisMetaStoreManager.ResolvedEntityResult;
 import org.apache.polaris.core.persistence.ResolvedPolarisEntity;
 import org.apache.polaris.core.persistence.cache.EntityCache;
 import org.apache.polaris.core.persistence.cache.EntityCacheByNameKey;
 import org.apache.polaris.core.persistence.cache.EntityCacheLookupResult;
+import org.apache.polaris.core.persistence.dao.entity.ChangeTrackingResult;
+import org.apache.polaris.core.persistence.dao.entity.ResolvedEntityResult;
 
 /**
  * REST request resolver, allows to resolve all entities referenced directly or indirectly by in
@@ -64,7 +65,7 @@ public class Resolver {
   private final @Nonnull PolarisMetaStoreManager polarisMetaStoreManager;
 
   // the cache of entities
-  private final @Nonnull EntityCache cache;
+  @Nullable private final EntityCache cache;
 
   // the id of the principal making the call or 0 if unknown
   private final @Nonnull AuthenticatedPolarisPrincipal polarisPrincipal;
@@ -106,6 +107,10 @@ public class Resolver {
 
   private ResolverStatus resolverStatus;
 
+  // Set if we determine the reference catalog is a passthrough facade, which impacts
+  // leniency of resolution of in-catalog paths
+  private boolean isPassthroughFacade;
+
   /**
    * Constructor, effectively starts an entity resolver session
    *
@@ -125,7 +130,7 @@ public class Resolver {
       @Nonnull PolarisCallContext polarisCallContext,
       @Nonnull PolarisMetaStoreManager polarisMetaStoreManager,
       @Nonnull SecurityContext securityContext,
-      @Nonnull EntityCache cache,
+      @Nullable EntityCache cache,
       @Nullable String referenceCatalogName) {
     this.polarisCallContext = polarisCallContext;
     this.diagnostics = polarisCallContext.getDiagServices();
@@ -262,6 +267,10 @@ public class Resolver {
 
     // all has been resolved
     return status;
+  }
+
+  public boolean getIsPassthroughFacade() {
+    return this.isPassthroughFacade;
   }
 
   /**
@@ -517,6 +526,10 @@ public class Resolver {
    * @return true if none of the entities has changed
    */
   private boolean bulkValidate(List<ResolvedPolarisEntity> toValidate) {
+    if (!polarisMetaStoreManager.requiresEntityReload()) {
+      return true;
+    }
+
     // assume everything is good
     boolean validationStatus = true;
 
@@ -652,6 +665,7 @@ public class Resolver {
           this.resolveByName(toValidate, entityName.getEntityType(), entityName.getEntityName());
 
       // if not found, we can exit unless the entity is optional
+      // TODO: Consider how this interacts with CATALOG_ROLE in the isPassthroughFacade case.
       if (!entityName.isOptional()
           && (resolvedEntity == null || resolvedEntity.getEntity().isDropped())) {
         return new ResolverStatus(entityName.getEntityType(), entityName.getEntityName());
@@ -702,7 +716,9 @@ public class Resolver {
 
         // if not found, abort
         if (segment == null || segment.getEntity().isDropped()) {
-          if (path.isOptional()) {
+          // If we've determined the catalog is a passthrough facade, treat all paths as
+          // optional.
+          if (path.isOptional() || this.isPassthroughFacade) {
             // we have resolved as much as what we could have
             break;
           } else {
@@ -845,6 +861,10 @@ public class Resolver {
           }
         }
       }
+    }
+
+    if (CatalogEntity.of(this.resolvedReferenceCatalog.getEntity()).isPassthroughFacade()) {
+      this.isPassthroughFacade = true;
     }
 
     // all good
@@ -1027,7 +1047,7 @@ public class Resolver {
     if (this.cache != null) {
       // get or load by name
       EntityCacheLookupResult lookupResult =
-          this.cache.getOrLoadEntityById(this.polarisCallContext, catalogId, entityId);
+          this.cache.getOrLoadEntityById(this.polarisCallContext, catalogId, entityId, entityType);
 
       // if not found, return null
       if (lookupResult == null) {
@@ -1049,7 +1069,7 @@ public class Resolver {
       // If no cache, load directly from metastore manager.
       ResolvedEntityResult result =
           polarisMetaStoreManager.loadResolvedEntityById(
-              this.polarisCallContext, catalogId, entityId);
+              this.polarisCallContext, catalogId, entityId, entityType);
       if (!result.isSuccess()) {
         // not found
         return null;

@@ -83,13 +83,25 @@ public class AwsCredentialsStorageIntegration
     credentialMap.put(PolarisCredentialProperty.AWS_TOKEN, response.credentials().sessionToken());
     Optional.ofNullable(response.credentials().expiration())
         .ifPresent(
-            i ->
-                credentialMap.put(
-                    PolarisCredentialProperty.EXPIRATION_TIME, String.valueOf(i.toEpochMilli())));
+            i -> {
+              credentialMap.put(
+                  PolarisCredentialProperty.EXPIRATION_TIME, String.valueOf(i.toEpochMilli()));
+              credentialMap.put(
+                  PolarisCredentialProperty.AWS_SESSION_TOKEN_EXPIRES_AT_MS,
+                  String.valueOf(i.toEpochMilli()));
+            });
 
     if (storageConfig.getRegion() != null) {
       credentialMap.put(PolarisCredentialProperty.CLIENT_REGION, storageConfig.getRegion());
     }
+
+    if (storageConfig.getAwsPartition().equals("aws-us-gov")
+        && credentialMap.get(PolarisCredentialProperty.CLIENT_REGION) == null) {
+      throw new IllegalArgumentException(
+          String.format(
+              "AWS region must be set when using partition %s", storageConfig.getAwsPartition()));
+    }
+
     return credentialMap;
   }
 
@@ -119,7 +131,6 @@ public class AwsCredentialsStorageIntegration
             location -> {
               URI uri = URI.create(location);
               allowGetObjectStatementBuilder.addResource(
-                  // TODO add support for CN and GOV
                   IamResource.create(
                       arnPrefix + StorageUtil.concatFilePrefixes(parseS3Path(uri), "*", "/")));
               final var bucket = arnPrefix + StorageUtil.getBucket(uri);
@@ -155,7 +166,6 @@ public class AwsCredentialsStorageIntegration
       writeLocations.forEach(
           location -> {
             URI uri = URI.create(location);
-            // TODO add support for CN and GOV
             allowPutObjectStatementBuilder.addResource(
                 IamResource.create(
                     arnPrefix + StorageUtil.concatFilePrefixes(parseS3Path(uri), "*", "/")));

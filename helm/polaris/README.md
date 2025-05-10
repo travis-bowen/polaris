@@ -70,7 +70,7 @@ Simply run the `run.sh` script from the Polaris repo root, making sure to specif
 `--eclipse-link-deps` option:
 
 ```bash
-./run.sh --eclipse-link-deps=org.postgresql:postgresql:42.7.4
+./run.sh
 ```
 
 This script will create a Kind cluster, deploy a local Docker registry, build the Polaris Docker
@@ -86,29 +86,27 @@ If necessary, build and load the Docker images with support for Postgres into Mi
 ```bash
 eval $(minikube -p minikube docker-env)
 
-./gradlew clean :polaris-quarkus-server:assemble :polaris-quarkus-admin:assemble \
-    -Dquarkus.container-image.build=true \
-    -PeclipseLinkDeps=org.postgresql:postgresql:42.7.4 \
-    --no-build-cache
+./gradlew \
+    :polaris-quarkus-server:assemble \
+    :polaris-quarkus-server:quarkusAppPartsBuild --rerun \
+    :polaris-quarkus-admin:assemble \
+    :polaris-quarkus-admin:quarkusAppPartsBuild --rerun \
+    -Dquarkus.container-image.build=true
 ```
 
 ### Installing the chart locally
 
 The below instructions assume a local Kubernetes cluster is running and Helm is installed.
 
+#### Common setup
+
 Create and populate the target namespace:
 
 ```bash
 kubectl create namespace polaris
 kubectl apply --namespace polaris -f helm/polaris/ci/fixtures/
-```
 
-Finally, install the chart. From Polaris repo root:
-
-```bash
-helm upgrade --install --namespace polaris \
-  --debug --values helm/polaris/ci/simple-values.yaml \
-   polaris helm/polaris
+kubectl wait --namespace polaris --for=condition=ready pod --selector=app.kubernetes.io/name=postgres --timeout=120s
 ```
 
 The `helm/polaris/ci` contains a number of values files that can be used to install the chart with
@@ -121,10 +119,69 @@ ct lint --charts helm/polaris
 ct install --namespace polaris --debug --charts ./helm/polaris
 ```
 
-### Uninstalling the chart
+Below are two sample deployment models for installing the chart: one with a non-persistent backend and another with a persistent backend.
+
+#### Non-persistent backend
+
+Install the chart with a non-persistent backend. From Polaris repo root:
+
+```bash
+helm upgrade --install --namespace polaris \
+  --debug --values helm/polaris/ci/simple-values.yaml \
+   polaris helm/polaris
+```
+
+#### Persistent backend
+
+> [!WARNING]
+> The Postgres deployment set up in the fixtures directory is intended for testing purposes only and is not suitable for production use. For production deployments, use a managed Postgres service or a properly configured and secured Postgres instance.
+
+Install the chart with a persistent backend. From Polaris repo root:
+
+```bash
+helm upgrade --install --namespace polaris \
+  --debug --values helm/polaris/ci/persistence-values.yaml \
+  polaris helm/polaris
+
+kubectl wait --namespace polaris --for=condition=ready pod --selector=app.kubernetes.io/name=polaris --timeout=120s
+```
+
+After deploying the chart with a persistent backend, the `persistence.xml` file, originally loaded into the Kubernetes pod via a secret, can be accessed locally if needed. This file contains the persistence configuration required for the next steps. Use the following command to retrieve it:
+
+```bash
+kubectl exec -it -n polaris $(kubectl get pod -n polaris -l app.kubernetes.io/name=polaris -o jsonpath='{.items[0].metadata.name}') -- cat /deployments/config/persistence.xml > persistence.xml
+```
+
+The `persistence.xml` file references the Postgres hostname as postgres. Update it to localhost to enable local connections:
+
+```bash
+sed -i .bak 's/postgres:/localhost:/g' persistence.xml
+```
+
+To access Polaris and Postgres locally, set up port forwarding for both services:
+```bash
+kubectl port-forward -n polaris $(kubectl get pod -n polaris -l app.kubernetes.io/name=polaris -o jsonpath='{.items[0].metadata.name}') 8181:8181
+
+kubectl port-forward -n polaris $(kubectl get pod -n polaris -l app.kubernetes.io/name=postgres -o jsonpath='{.items[0].metadata.name}') 5432:5432
+```
+
+Run the catalog bootstrap using the Polaris admin tool. This step initializes the catalog with the required configuration:
+
+```bash
+java -Dpolaris.persistence.eclipselink.configuration-file=./persistence.xml \
+  -Dpolaris.persistence.eclipselink.persistence-unit=polaris \
+  -jar quarkus/admin/build/polaris-quarkus-admin-*-runner.jar \
+  bootstrap -c POLARIS,root,pass -r POLARIS
+```
+
+### Uninstalling
 
 ```bash
 helm uninstall --namespace polaris polaris
+
+kubectl delete --namespace polaris -f helm/polaris/ci/fixtures/
+
+kubectl delete namespace polaris
 ```
 
 ## Values
@@ -148,13 +205,14 @@ helm uninstall --namespace polaris polaris
 | autoscaling.targetCPUUtilizationPercentage | int | `80` | Optional; set to zero or empty to disable. |
 | autoscaling.targetMemoryUtilizationPercentage | string | `nil` | Optional; set to zero or empty to disable. |
 | configMapLabels | object | `{}` | Additional Labels to apply to polaris configmap. |
-| containerSecurityContext | object | `{}` | Security context for the polaris container. See https://kubernetes.io/docs/tasks/configure-pod-container/security-context/. |
+| containerSecurityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"runAsNonRoot":true,"runAsUser":10000,"seccompProfile":{"type":"RuntimeDefault"}}` | Security context for the polaris container. See https://kubernetes.io/docs/tasks/configure-pod-container/security-context/. |
+| containerSecurityContext.runAsUser | int | `10000` | UID 10000 is compatible with Polaris OSS default images; change this if you are using a different image. |
 | cors | object | `{"accessControlAllowCredentials":null,"accessControlMaxAge":null,"allowedHeaders":[],"allowedMethods":[],"allowedOrigins":[],"exposedHeaders":[]}` | Polaris CORS configuration. |
 | cors.accessControlAllowCredentials | string | `nil` | The `Access-Control-Allow-Credentials` response header. The value of this header will default to `true` if `allowedOrigins` property is set and there is a match with the precise `Origin` header. |
 | cors.accessControlMaxAge | string | `nil` | The `Access-Control-Max-Age` response header value indicating how long the results of a pre-flight request can be cached. Must be a valid duration. |
 | cors.allowedHeaders | list | `[]` | HTTP headers allowed for CORS, ex: X-Custom, Content-Disposition. If this is not set or empty, all requested headers are considered allowed. |
 | cors.allowedMethods | list | `[]` | HTTP methods allowed for CORS, ex: GET, PUT, POST. If this is not set or empty, all requested methods are considered allowed. |
-| cors.allowedOrigins | list | `[]` | Origins allowed for CORS, e.g. http://polaris.io, http://localhost:8181. In case an entry of the list is surrounded by forward slashes, it is interpreted as a regular expression. |
+| cors.allowedOrigins | list | `[]` | Origins allowed for CORS, e.g. http://polaris.apache.org, http://localhost:8181. In case an entry of the list is surrounded by forward slashes, it is interpreted as a regular expression. |
 | cors.exposedHeaders | list | `[]` | HTTP headers exposed to the client, ex: X-Custom, Content-Disposition. The default is an empty list. |
 | extraEnv | list | `[]` | Advanced configuration via Environment Variables. Extra environment variables to add to the Polaris server container. You can pass here any valid EnvVar object: https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.27/#envvar-v1-core This can be useful to get configuration values from Kubernetes secrets or config maps. |
 | extraInitContainers | list | `[]` | Add additional init containers to the polaris pod(s) See https://kubernetes.io/docs/concepts/workloads/pods/init-containers/. |
@@ -230,7 +288,8 @@ helm uninstall --namespace polaris polaris
 | persistence.type | string | `"eclipse-link"` | The type of persistence to use. Two built-in types are supported: in-memory and eclipse-link. |
 | podAnnotations | object | `{}` | Annotations to apply to polaris pods. |
 | podLabels | object | `{}` | Additional Labels to apply to polaris pods. |
-| podSecurityContext | object | `{}` | Security context for the polaris pod. See https://kubernetes.io/docs/tasks/configure-pod-container/security-context/. |
+| podSecurityContext | object | `{"fsGroup":10001,"seccompProfile":{"type":"RuntimeDefault"}}` | Security context for the polaris pod. See https://kubernetes.io/docs/tasks/configure-pod-container/security-context/. |
+| podSecurityContext.fsGroup | int | `10001` | GID 10001 is compatible with Polaris OSS default images; change this if you are using a different image. |
 | rateLimiter | object | `{"tokenBucket":{"requestsPerSecond":9999,"type":"default","window":"PT10S"},"type":"no-op"}` | Polaris rate limiter configuration. |
 | rateLimiter.tokenBucket | object | `{"requestsPerSecond":9999,"type":"default","window":"PT10S"}` | The configuration for the default rate limiter, which uses the token bucket algorithm with one bucket per realm. |
 | rateLimiter.tokenBucket.requestsPerSecond | int | `9999` | The maximum number of requests per second allowed for each realm. |

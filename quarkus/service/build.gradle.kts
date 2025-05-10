@@ -27,6 +27,8 @@ dependencies {
   implementation(project(":polaris-core"))
   implementation(project(":polaris-api-management-service"))
   implementation(project(":polaris-api-iceberg-service"))
+  implementation(project(":polaris-api-catalog-service"))
+
   implementation(project(":polaris-service-common"))
   implementation(project(":polaris-quarkus-defaults"))
 
@@ -45,7 +47,9 @@ dependencies {
   implementation("io.quarkus:quarkus-smallrye-health")
   implementation("io.quarkus:quarkus-micrometer")
   implementation("io.quarkus:quarkus-micrometer-registry-prometheus")
+  implementation("io.quarkus:quarkus-oidc")
   implementation("io.quarkus:quarkus-opentelemetry")
+  implementation("io.quarkus:quarkus-security")
   implementation("io.quarkus:quarkus-smallrye-context-propagation")
   implementation("io.quarkus:quarkus-smallrye-fault-tolerance")
 
@@ -88,7 +92,12 @@ dependencies {
 
   implementation(libs.jakarta.servlet.api)
 
-  testFixturesApi(project(":polaris-tests"))
+  testFixturesApi(project(":polaris-tests")) {
+    // exclude all spark dependencies
+    exclude(group = "org.apache.iceberg", module = "iceberg-spark-3.5_2.12")
+    exclude(group = "org.apache.iceberg", module = "iceberg-spark-extensions-3.5_2.12")
+    exclude(group = "org.apache.spark", module = "spark-sql_2.12")
+  }
 
   testImplementation(project(":polaris-api-management-model"))
   testImplementation(testFixtures(project(":polaris-service-common")))
@@ -96,20 +105,16 @@ dependencies {
   testImplementation("org.apache.iceberg:iceberg-api:${libs.versions.iceberg.get()}:tests")
   testImplementation("org.apache.iceberg:iceberg-core:${libs.versions.iceberg.get()}:tests")
 
-  testImplementation("org.apache.iceberg:iceberg-spark-3.5_2.12")
-  testImplementation("org.apache.iceberg:iceberg-spark-extensions-3.5_2.12")
-  testImplementation(libs.spark35.sql.scala212) {
-    // exclude log4j dependencies
-    exclude("org.apache.logging.log4j", "log4j-slf4j2-impl")
-    exclude("org.apache.logging.log4j", "log4j-api")
-    exclude("org.apache.logging.log4j", "log4j-1.2-api")
-    exclude("org.slf4j", "jul-to-slf4j")
-  }
-
   testImplementation("software.amazon.awssdk:glue")
   testImplementation("software.amazon.awssdk:kms")
   testImplementation("software.amazon.awssdk:dynamodb")
 
+  runtimeOnly(project(":polaris-relational-jdbc"))
+  runtimeOnly("io.quarkus:quarkus-jdbc-postgresql") {
+    exclude(group = "org.antlr", module = "antlr4-runtime")
+    exclude(group = "org.scala-lang", module = "scala-library")
+    exclude(group = "org.scala-lang", module = "scala-reflect")
+  }
   testImplementation(platform(libs.quarkus.bom))
   testImplementation("io.quarkus:quarkus-junit5")
   testImplementation("io.quarkus:quarkus-junit5-mockito")
@@ -117,27 +122,15 @@ dependencies {
   testImplementation("io.quarkus:quarkus-rest-client-jackson")
   testImplementation("io.rest-assured:rest-assured")
 
-  testImplementation(platform(libs.testcontainers.bom))
-  testImplementation("org.testcontainers:testcontainers")
-  testImplementation(libs.s3mock.testcontainers)
-
+  testImplementation(libs.threeten.extra)
   testImplementation(libs.hawkular.agent.prometheus.scraper)
 
-  intTestImplementation(project(":polaris-api-management-model"))
-
-  intTestImplementation("org.apache.iceberg:iceberg-api:${libs.versions.iceberg.get()}")
-  intTestImplementation("org.apache.iceberg:iceberg-core:${libs.versions.iceberg.get()}")
-  intTestImplementation("org.apache.iceberg:iceberg-api:${libs.versions.iceberg.get()}:tests")
-  intTestImplementation("org.apache.iceberg:iceberg-core:${libs.versions.iceberg.get()}:tests")
-
-  intTestImplementation(platform(libs.quarkus.bom))
-  intTestImplementation("io.quarkus:quarkus-junit5")
-
-  // required for QuarkusSparkIT
-  intTestImplementation(enforcedPlatform(libs.scala212.lang.library))
-  intTestImplementation(enforcedPlatform(libs.scala212.lang.reflect))
-  intTestImplementation(libs.javax.servlet.api)
-  intTestImplementation(libs.antlr4.runtime)
+  testImplementation(project(":polaris-quarkus-test-commons"))
+  testImplementation("io.quarkus:quarkus-junit5")
+  testImplementation(platform(libs.testcontainers.bom))
+  testImplementation("org.testcontainers:testcontainers")
+  testImplementation("org.testcontainers:postgresql")
+  testImplementation("org.postgresql:postgresql")
 }
 
 tasks.withType(Test::class.java).configureEach {
@@ -154,14 +147,51 @@ tasks.withType(Test::class.java).configureEach {
   systemProperty("java.security.manager", "allow")
 }
 
-tasks.named<Test>("test").configure { maxParallelForks = 4 }
+tasks.named<Test>("test").configure {
+  maxParallelForks = 4
+  // enlarge the max heap size to avoid out of memory error
+  maxHeapSize = "4g"
+}
 
 tasks.named<Test>("intTest").configure {
   maxParallelForks = 1
-  // Same issue as above: allow a java security manager after Java 21
-  // (this setting is for the application under test, while the setting above is for test code).
-  systemProperty("quarkus.test.arg-line", "-Djava.security.manager=allow")
+
   val logsDir = project.layout.buildDirectory.get().asFile.resolve("logs")
+
+  // JVM arguments provider does not interfere with Gradle's cache keys
+  jvmArgumentProviders.add(
+    CommandLineArgumentProvider {
+      // Same issue as above: allow a java security manager after Java 21
+      // (this setting is for the application under test, while the setting above is for test code).
+      val securityManagerAllow = "-Djava.security.manager=allow"
+
+      val args = mutableListOf<String>()
+
+      // Example: to attach a debugger to the spawned JVM running Quarkus, add
+      // -Dquarkus.test.arg-line=-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005
+      // to your test configuration.
+      val explicitQuarkusTestArgLine = System.getProperty("quarkus.test.arg-line")
+      var quarkusTestArgLine =
+        if (explicitQuarkusTestArgLine != null) "$explicitQuarkusTestArgLine $securityManagerAllow"
+        else securityManagerAllow
+
+      args.add("-Dquarkus.test.arg-line=$quarkusTestArgLine")
+      // This property is not honored in a per-profile application.properties file,
+      // so we need to set it here.
+      args.add("-Dquarkus.log.file.path=${logsDir.resolve("polaris.log").absolutePath}")
+
+      // Add `quarkus.*` system properties, other than the ones explicitly set above
+      System.getProperties()
+        .filter {
+          it.key.toString().startsWith("quarkus.") &&
+            !"quarkus.test.arg-line".equals(it.key) &&
+            !"quarkus.log.file.path".equals(it.key)
+        }
+        .forEach { args.add("${it.key}=${it.value}") }
+
+      args
+    }
+  )
   // delete files from previous runs
   doFirst {
     // delete log files written by Polaris
@@ -169,38 +199,4 @@ tasks.named<Test>("intTest").configure {
     // delete quarkus.log file (captured Polaris stdout/stderr)
     project.layout.buildDirectory.get().asFile.resolve("quarkus.log").delete()
   }
-  // This property is not honored in a per-profile application.properties file,
-  // so we need to set it here.
-  systemProperty("quarkus.log.file.path", logsDir.resolve("polaris.log").absolutePath)
-  // For Spark integration tests
-  addSparkJvmOptions()
-}
-
-/**
- * Adds the JPMS options required for Spark to run on Java 17, taken from the
- * `DEFAULT_MODULE_OPTIONS` constant in `org.apache.spark.launcher.JavaModuleOptions`.
- */
-fun JavaForkOptions.addSparkJvmOptions() {
-  jvmArgs =
-    (jvmArgs ?: emptyList()) +
-      listOf(
-        // Spark 3.3+
-        "-XX:+IgnoreUnrecognizedVMOptions",
-        "--add-opens=java.base/java.lang=ALL-UNNAMED",
-        "--add-opens=java.base/java.lang.invoke=ALL-UNNAMED",
-        "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
-        "--add-opens=java.base/java.io=ALL-UNNAMED",
-        "--add-opens=java.base/java.net=ALL-UNNAMED",
-        "--add-opens=java.base/java.nio=ALL-UNNAMED",
-        "--add-opens=java.base/java.util=ALL-UNNAMED",
-        "--add-opens=java.base/java.util.concurrent=ALL-UNNAMED",
-        "--add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED",
-        "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
-        "--add-opens=java.base/sun.nio.cs=ALL-UNNAMED",
-        "--add-opens=java.base/sun.security.action=ALL-UNNAMED",
-        "--add-opens=java.base/sun.util.calendar=ALL-UNNAMED",
-        "--add-opens=java.security.jgss/sun.security.krb5=ALL-UNNAMED",
-        // Spark 3.4+
-        "-Djdk.reflect.useDirectMethodHandle=false",
-      )
 }

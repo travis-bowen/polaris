@@ -57,7 +57,7 @@ openApiGenerate {
   ignoreFileOverride = "$rootDir/.openapi-generator-ignore"
   removeOperationIdPrefix = true
   templateDir = "$rootDir/server-templates"
-  globalProperties.put("apis", "")
+  globalProperties.put("apis", "CatalogApi,ConfigurationApi,OAuth2Api")
   globalProperties.put("models", "false")
   globalProperties.put("apiDocs", "false")
   globalProperties.put("modelTests", "false")
@@ -118,3 +118,7 @@ sourceSets {
 }
 
 tasks.named("javadoc") { dependsOn("jandex") }
+
+tasks.named("processResources") { dependsOn("openApiGenerate") }
+
+tasks.named("openApiGenerate") { outputs.cacheIf { false } }

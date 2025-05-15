@@ -219,7 +219,10 @@ public class TreeMapTransactionalPersistenceImpl extends AbstractTransactionalPe
       @Nonnull PolarisCallContext callCtx, long catalogId, long entityId, int typeCode) {
     PolarisBaseEntity entity =
         this.store.getSliceEntities().read(this.store.buildKeyComposite(catalogId, entityId));
-    if (entity != null && entity.getTypeCode() != typeCode) {
+    if (entity != null
+        && typeCode != -1
+        && typeCode != PolarisEntityType.NULL_TYPE.getCode()
+        && entity.getTypeCode() != typeCode) {
       return null;
     }
     return entity;

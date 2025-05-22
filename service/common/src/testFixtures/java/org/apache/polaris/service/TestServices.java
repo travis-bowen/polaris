@@ -20,6 +20,8 @@ package org.apache.polaris.service;
 
 import com.google.auth.oauth2.AccessToken;
 import com.google.auth.oauth2.GoogleCredentials;
+import jakarta.annotation.Nonnull;
+import jakarta.annotation.Nullable;
 import jakarta.ws.rs.core.SecurityContext;
 import java.security.Principal;
 import java.time.Clock;
@@ -49,13 +51,16 @@ import org.apache.polaris.service.admin.api.PolarisCatalogsApi;
 import org.apache.polaris.service.catalog.DefaultCatalogPrefixParser;
 import org.apache.polaris.service.catalog.api.IcebergRestCatalogApi;
 import org.apache.polaris.service.catalog.api.IcebergRestConfigurationApi;
+import org.apache.polaris.service.catalog.iceberg.CatalogHandlerUtils;
 import org.apache.polaris.service.catalog.iceberg.IcebergCatalogAdapter;
 import org.apache.polaris.service.catalog.io.FileIOFactory;
 import org.apache.polaris.service.catalog.io.MeasuredFileIOFactory;
-import org.apache.polaris.service.config.DefaultConfigurationStore;
 import org.apache.polaris.service.config.RealmEntityManagerFactory;
-import org.apache.polaris.service.context.CallContextCatalogFactory;
-import org.apache.polaris.service.context.PolarisCallContextCatalogFactory;
+import org.apache.polaris.service.config.ReservedProperties;
+import org.apache.polaris.service.context.catalog.CallContextCatalogFactory;
+import org.apache.polaris.service.context.catalog.PolarisCallContextCatalogFactory;
+import org.apache.polaris.service.events.PolarisEventListener;
+import org.apache.polaris.service.events.TestPolarisEventListener;
 import org.apache.polaris.service.persistence.InMemoryPolarisMetaStoreManagerFactory;
 import org.apache.polaris.service.secrets.UnsafeInMemorySecretsManagerFactory;
 import org.apache.polaris.service.storage.PolarisStorageIntegrationProviderImpl;
@@ -75,7 +80,8 @@ public record TestServices(
     RealmContext realmContext,
     SecurityContext securityContext,
     FileIOFactory fileIOFactory,
-    TaskExecutor taskExecutor) {
+    TaskExecutor taskExecutor,
+    PolarisEventListener polarisEventListener) {
 
   private static final RealmContext TEST_REALM = () -> "test-realm";
   private static final String GCP_ACCESS_TOKEN = "abc";
@@ -87,6 +93,21 @@ public record TestServices(
           MetaStoreManagerFactory,
           PolarisConfigurationStore,
           FileIOFactory> {}
+
+  private static class MockedConfigurationStore implements PolarisConfigurationStore {
+    private final Map<String, Object> defaults;
+
+    public MockedConfigurationStore(Map<String, Object> defaults) {
+      this.defaults = Map.copyOf(defaults);
+    }
+
+    @Override
+    public <T> @Nullable T getConfiguration(@Nonnull PolarisCallContext ctx, String configName) {
+      @SuppressWarnings("unchecked")
+      T confgValue = (T) defaults.get(configName);
+      return confgValue;
+    }
+  }
 
   public static Builder builder() {
     return new Builder();
@@ -121,7 +142,7 @@ public record TestServices(
     }
 
     public TestServices build() {
-      DefaultConfigurationStore configurationStore = new DefaultConfigurationStore(config);
+      PolarisConfigurationStore configurationStore = new MockedConfigurationStore(config);
       PolarisDiagnostics polarisDiagnostics = Mockito.mock(PolarisDiagnostics.class);
       PolarisAuthorizer authorizer = Mockito.mock(PolarisAuthorizer.class);
 
@@ -175,13 +196,20 @@ public record TestServices(
 
       TaskExecutor taskExecutor = Mockito.mock(TaskExecutor.class);
 
+      PolarisEventListener polarisEventListener = new TestPolarisEventListener();
       CallContextCatalogFactory callContextFactory =
           new PolarisCallContextCatalogFactory(
               realmEntityManagerFactory,
               metaStoreManagerFactory,
               userSecretsManagerFactory,
               taskExecutor,
-              fileIOFactory);
+              fileIOFactory,
+              polarisEventListener);
+
+      ReservedProperties reservedProperties = ReservedProperties.NONE;
+
+      CatalogHandlerUtils catalogHandlerUtils =
+          new CatalogHandlerUtils(callContext.getPolarisCallContext(), configurationStore);
 
       IcebergCatalogAdapter service =
           new IcebergCatalogAdapter(
@@ -192,7 +220,9 @@ public record TestServices(
               metaStoreManager,
               userSecretsManager,
               authorizer,
-              new DefaultCatalogPrefixParser());
+              new DefaultCatalogPrefixParser(),
+              reservedProperties,
+              catalogHandlerUtils);
 
       IcebergRestCatalogApi restApi = new IcebergRestCatalogApi(service);
       IcebergRestConfigurationApi restConfigurationApi = new IcebergRestConfigurationApi(service);
@@ -239,7 +269,8 @@ public record TestServices(
                   metaStoreManagerFactory,
                   userSecretsManagerFactory,
                   authorizer,
-                  callContext));
+                  callContext,
+                  reservedProperties));
 
       return new TestServices(
           catalogsApi,
@@ -252,7 +283,8 @@ public record TestServices(
           realmContext,
           securityContext,
           fileIOFactory,
-          taskExecutor);
+          taskExecutor,
+          polarisEventListener);
     }
   }
 }

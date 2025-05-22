@@ -40,6 +40,7 @@ dependencies {
   implementation(platform(libs.opentelemetry.bom))
 
   implementation(platform(libs.quarkus.bom))
+  implementation(project(":polaris-quarkus-common"))
   implementation("io.quarkus:quarkus-logging-json")
   implementation("io.quarkus:quarkus-rest-jackson")
   implementation("io.quarkus:quarkus-reactive-routes")
@@ -68,8 +69,6 @@ dependencies {
   implementation(libs.hadoop.client.runtime)
 
   implementation(libs.auth0.jwt)
-
-  implementation(libs.bouncycastle.bcprov)
 
   compileOnly(libs.jakarta.annotation.api)
   compileOnly(libs.spotbugs.annotations)

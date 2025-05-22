@@ -60,7 +60,7 @@ a released Polaris Spark client.
 
 ```shell
 bin/spark-shell \
---packages <polaris-spark-client-package>,org.apache.hadoop:hadoop-aws:3.4.0,io.delta:delta-spark_2.12:3.3.1 \
+--packages <polaris-spark-client-package>,org.apache.iceberg:iceberg-aws-bundle:1.9.0,io.delta:delta-spark_2.12:3.3.1 \
 --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,io.delta.sql.DeltaSparkSessionExtension \
 --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog \
 --conf spark.sql.catalog.<spark-catalog-name>.warehouse=<polaris-catalog-name> \
@@ -88,7 +88,7 @@ You can also start the connection by programmatically initialize a SparkSession,
 from pyspark.sql import SparkSession
 
 spark = SparkSession.builder
-  .config("spark.jars.packages", "<polaris-spark-client-package>,org.apache.hadoop:hadoop-aws:3.3.4,io.delta:delta-spark_2.12:3.3.1")
+  .config("spark.jars.packages", "<polaris-spark-client-package>,org.apache.iceberg:iceberg-aws-bundle:1.9.0,io.delta:delta-spark_2.12:3.3.1")
   .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
   .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,io.delta.sql.DeltaSparkSessionExtension")
   .config("spark.sql.catalog.<spark-catalog-name>", "org.apache.polaris.spark.SparkCatalog")  
@@ -126,5 +126,5 @@ The Polaris Spark client has the following functionality limitations:
    is also not supported, since it relies on the CTAS support.
 2) Create a Delta table without explicit location is not supported.
 3) Rename a Delta table is not supported.
-4) ALTER TABLE ... SET LOCATION/SET FILEFORMAT/ADD PARTITION is not supported for DELTA table.
+4) ALTER TABLE ... SET LOCATION is not supported for DELTA table.
 5) For other non-Iceberg tables like csv, it is not supported.

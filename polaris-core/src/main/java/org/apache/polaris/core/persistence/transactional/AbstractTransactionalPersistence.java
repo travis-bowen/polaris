@@ -37,8 +37,6 @@ import org.apache.polaris.core.entity.PolarisPrincipalSecrets;
 import org.apache.polaris.core.persistence.EntityAlreadyExistsException;
 import org.apache.polaris.core.persistence.PolicyMappingAlreadyExistsException;
 import org.apache.polaris.core.persistence.RetryOnConcurrencyException;
-import org.apache.polaris.core.persistence.pagination.Page;
-import org.apache.polaris.core.persistence.pagination.PageToken;
 import org.apache.polaris.core.policy.PolarisPolicyMappingRecord;
 import org.apache.polaris.core.policy.PolicyType;
 import org.apache.polaris.core.storage.PolarisStorageConfigurationInfo;
@@ -354,50 +352,46 @@ public abstract class AbstractTransactionalPersistence implements TransactionalP
   /** {@inheritDoc} */
   @Override
   @Nonnull
-  public Page<EntityNameLookupRecord> listEntities(
+  public List<EntityNameLookupRecord> listEntities(
       @Nonnull PolarisCallContext callCtx,
       long catalogId,
       long parentId,
-      @Nonnull PolarisEntityType entityType,
-      @Nonnull PageToken pageToken) {
+      @Nonnull PolarisEntityType entityType) {
     return runInReadTransaction(
-        callCtx,
-        () -> this.listEntitiesInCurrentTxn(callCtx, catalogId, parentId, entityType, pageToken));
+        callCtx, () -> this.listEntitiesInCurrentTxn(callCtx, catalogId, parentId, entityType));
   }
 
   /** {@inheritDoc} */
   @Override
   @Nonnull
-  public Page<EntityNameLookupRecord> listEntities(
+  public List<EntityNameLookupRecord> listEntities(
       @Nonnull PolarisCallContext callCtx,
       long catalogId,
       long parentId,
       @Nonnull PolarisEntityType entityType,
-      @Nonnull Predicate<PolarisBaseEntity> entityFilter,
-      @Nonnull PageToken pageToken) {
+      @Nonnull Predicate<PolarisBaseEntity> entityFilter) {
     return runInReadTransaction(
         callCtx,
         () ->
-            this.listEntitiesInCurrentTxn(
-                callCtx, catalogId, parentId, entityType, entityFilter, pageToken));
+            this.listEntitiesInCurrentTxn(callCtx, catalogId, parentId, entityType, entityFilter));
   }
 
   /** {@inheritDoc} */
   @Override
   @Nonnull
-  public <T> Page<T> listEntities(
+  public <T> List<T> listEntities(
       @Nonnull PolarisCallContext callCtx,
       long catalogId,
       long parentId,
       @Nonnull PolarisEntityType entityType,
+      int limit,
       @Nonnull Predicate<PolarisBaseEntity> entityFilter,
-      @Nonnull Function<PolarisBaseEntity, T> transformer,
-      @Nonnull PageToken pageToken) {
+      @Nonnull Function<PolarisBaseEntity, T> transformer) {
     return runInReadTransaction(
         callCtx,
         () ->
             this.listEntitiesInCurrentTxn(
-                callCtx, catalogId, parentId, entityType, entityFilter, transformer, pageToken));
+                callCtx, catalogId, parentId, entityType, limit, entityFilter, transformer));
   }
 
   /** {@inheritDoc} */

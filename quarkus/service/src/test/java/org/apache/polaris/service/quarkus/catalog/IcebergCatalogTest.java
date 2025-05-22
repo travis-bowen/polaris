@@ -98,7 +98,6 @@ import org.apache.polaris.core.persistence.cache.InMemoryEntityCache;
 import org.apache.polaris.core.persistence.dao.entity.BaseResult;
 import org.apache.polaris.core.persistence.dao.entity.EntityResult;
 import org.apache.polaris.core.persistence.dao.entity.PrincipalSecretsResult;
-import org.apache.polaris.core.persistence.pagination.PageToken;
 import org.apache.polaris.core.persistence.resolver.PolarisResolutionManifestCatalogView;
 import org.apache.polaris.core.persistence.transactional.TransactionalPersistence;
 import org.apache.polaris.core.secrets.UserSecretsManager;
@@ -174,10 +173,8 @@ public abstract class IcebergCatalogTest extends CatalogTests<IcebergCatalog> {
           "true",
           "polaris.features.\"ALLOW_INSECURE_STORAGE_TYPES\"",
           "true",
-          "polaris.features.\"SUPPORTED_CATALOG_STORAGE_TYPES\"",
-          "[\"FILE\",\"S3\"]",
-          "polaris.features.\"LIST_PAGINATION_ENABLED\"",
-          "true",
+          "polaris.features.defaults.\"SUPPORTED_CATALOG_STORAGE_TYPES\"",
+          "[\"FILE\"]",
           "polaris.event-listener.type",
           "test",
           "polaris.readiness.ignore-severe-issues",
@@ -1593,9 +1590,7 @@ public abstract class IcebergCatalogTest extends CatalogTests<IcebergCatalog> {
         .as("Table should not exist after drop")
         .rejects(TABLE);
     List<PolarisBaseEntity> tasks =
-        metaStoreManager
-            .loadTasks(polarisContext, "testExecutor", PageToken.fromLimit(1))
-            .getEntities();
+        metaStoreManager.loadTasks(polarisContext, "testExecutor", 1).getEntities();
     Assertions.assertThat(tasks).hasSize(1);
     TaskEntity taskEntity = TaskEntity.of(tasks.get(0));
     EnumMap<StorageAccessProperty, String> credentials =
@@ -1804,8 +1799,7 @@ public abstract class IcebergCatalogTest extends CatalogTests<IcebergCatalog> {
     TaskEntity taskEntity =
         TaskEntity.of(
             metaStoreManager
-                .loadTasks(
-                    callContext.getPolarisCallContext(), "testExecutor", PageToken.fromLimit(1))
+                .loadTasks(callContext.getPolarisCallContext(), "testExecutor", 1)
                 .getEntities()
                 .getFirst());
     Map<String, String> properties = taskEntity.getInternalPropertiesAsMap();

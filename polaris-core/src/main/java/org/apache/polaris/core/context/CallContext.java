@@ -116,6 +116,10 @@ public interface CallContext extends AutoCloseable {
     };
   }
 
+  default CallContext copy() {
+    return copyOf(this);
+  }
+
   RealmContext getRealmContext();
 
   /**

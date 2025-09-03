@@ -804,7 +804,11 @@ public class IcebergCatalogHandler extends CatalogHandler implements AutoCloseab
 
   public LoadTableResponse updateTable(
       TableIdentifier tableIdentifier, UpdateTableRequest request) {
-    PolarisAuthorizableOperation op = PolarisAuthorizableOperation.UPDATE_TABLE;
+    boolean isOnlyAddSnapshot = request.updates().stream()
+        .allMatch(update -> update instanceof MetadataUpdate.AddSnapshot);
+    PolarisAuthorizableOperation op = isOnlyAddSnapshot 
+        ? PolarisAuthorizableOperation.UPDATE_TABLE_ONLY_ADD_SNAPSHOT
+        : PolarisAuthorizableOperation.UPDATE_TABLE;
     authorizeBasicTableLikeOperationOrThrow(
         op, PolarisEntitySubType.ICEBERG_TABLE, tableIdentifier);
 

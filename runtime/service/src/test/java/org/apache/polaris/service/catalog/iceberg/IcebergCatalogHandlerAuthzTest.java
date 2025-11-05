@@ -2231,4 +2231,274 @@ public class IcebergCatalogHandlerAuthzTest extends PolarisAuthzTestBase {
             newWrapper()
                 .loadTable(TABLE_NS1A_2, "all")); // Load table requires different privileges
   }
+
+  @Test
+  public void testUpdateTableWith_SetBranchSnapshotRefPrivilege() {
+    // Test that TABLE_SET_BRANCH_SNAPSHOT_REF privilege is required for setting branch refs
+    UpdateTableRequest request =
+        UpdateTableRequest.create(
+            TABLE_NS1A_2,
+            List.of(), // no requirements
+            List.of(
+                new MetadataUpdate.SetSnapshotRef(
+                    "test-branch", 12345L, org.apache.iceberg.SnapshotRef.TagType.BRANCH)));
+
+    doTestSufficientPrivileges(
+        List.of(
+            PolarisPrivilege.TABLE_SET_BRANCH_SNAPSHOT_REF,
+            PolarisPrivilege.TABLE_SET_SNAPSHOT_REF, // Broader privilege should also work
+            PolarisPrivilege.TABLE_WRITE_PROPERTIES,
+            PolarisPrivilege.TABLE_FULL_METADATA,
+            PolarisPrivilege.CATALOG_MANAGE_CONTENT),
+        () -> newWrapper().updateTable(TABLE_NS1A_2, request),
+        null /* cleanupAction */);
+  }
+
+  @Test
+  public void testUpdateTableWith_SetBranchSnapshotRefInsufficientPermissions() {
+    UpdateTableRequest request =
+        UpdateTableRequest.create(
+            TABLE_NS1A_2,
+            List.of(), // no requirements
+            List.of(
+                new MetadataUpdate.SetSnapshotRef(
+                    "test-branch", 12345L, org.apache.iceberg.SnapshotRef.TagType.BRANCH)));
+
+    doTestInsufficientPrivileges(
+        List.of(
+            PolarisPrivilege.TABLE_SET_TAG_SNAPSHOT_REF, // Tag privilege doesn't work for branches
+            PolarisPrivilege.TABLE_READ_PROPERTIES,
+            PolarisPrivilege.TABLE_READ_DATA,
+            PolarisPrivilege.TABLE_CREATE,
+            PolarisPrivilege.TABLE_DROP,
+            PolarisPrivilege.TABLE_ASSIGN_UUID,
+            PolarisPrivilege.TABLE_ADD_SNAPSHOT),
+        () -> newWrapper().updateTable(TABLE_NS1A_2, request));
+  }
+
+  @Test
+  public void testUpdateTableWith_SetTagSnapshotRefPrivilege() {
+    // Test that TABLE_SET_TAG_SNAPSHOT_REF privilege is required for setting tag refs
+    UpdateTableRequest request =
+        UpdateTableRequest.create(
+            TABLE_NS1A_2,
+            List.of(), // no requirements
+            List.of(
+                new MetadataUpdate.SetSnapshotRef(
+                    "test-tag", 12345L, org.apache.iceberg.SnapshotRef.TagType.TAG)));
+
+    doTestSufficientPrivileges(
+        List.of(
+            PolarisPrivilege.TABLE_SET_TAG_SNAPSHOT_REF,
+            PolarisPrivilege.TABLE_SET_SNAPSHOT_REF, // Broader privilege should also work
+            PolarisPrivilege.TABLE_WRITE_PROPERTIES,
+            PolarisPrivilege.TABLE_FULL_METADATA,
+            PolarisPrivilege.CATALOG_MANAGE_CONTENT),
+        () -> newWrapper().updateTable(TABLE_NS1A_2, request),
+        null /* cleanupAction */);
+  }
+
+  @Test
+  public void testUpdateTableWith_SetTagSnapshotRefInsufficientPermissions() {
+    UpdateTableRequest request =
+        UpdateTableRequest.create(
+            TABLE_NS1A_2,
+            List.of(), // no requirements
+            List.of(
+                new MetadataUpdate.SetSnapshotRef(
+                    "test-tag", 12345L, org.apache.iceberg.SnapshotRef.TagType.TAG)));
+
+    doTestInsufficientPrivileges(
+        List.of(
+            PolarisPrivilege
+                .TABLE_SET_BRANCH_SNAPSHOT_REF, // Branch privilege doesn't work for tags
+            PolarisPrivilege.TABLE_SET_MAIN_BRANCH_SNAPSHOT_REF,
+            PolarisPrivilege.TABLE_READ_PROPERTIES,
+            PolarisPrivilege.TABLE_READ_DATA,
+            PolarisPrivilege.TABLE_CREATE,
+            PolarisPrivilege.TABLE_DROP,
+            PolarisPrivilege.TABLE_ASSIGN_UUID,
+            PolarisPrivilege.TABLE_ADD_SNAPSHOT),
+        () -> newWrapper().updateTable(TABLE_NS1A_2, request));
+  }
+
+  @Test
+  public void testUpdateTableWith_SetMainBranchSnapshotRefPrivilege() {
+    // Test that TABLE_SET_MAIN_BRANCH_SNAPSHOT_REF privilege is specifically required for main
+    // branch
+    UpdateTableRequest request =
+        UpdateTableRequest.create(
+            TABLE_NS1A_2,
+            List.of(), // no requirements
+            List.of(
+                new MetadataUpdate.SetSnapshotRef(
+                    "main", 12345L, org.apache.iceberg.SnapshotRef.TagType.BRANCH)));
+
+    doTestSufficientPrivileges(
+        List.of(
+            PolarisPrivilege.TABLE_SET_MAIN_BRANCH_SNAPSHOT_REF,
+            PolarisPrivilege
+                .TABLE_SET_BRANCH_SNAPSHOT_REF, // Broader branch privilege should also work
+            PolarisPrivilege.TABLE_SET_SNAPSHOT_REF, // Even broader privilege should also work
+            PolarisPrivilege.TABLE_WRITE_PROPERTIES,
+            PolarisPrivilege.TABLE_FULL_METADATA,
+            PolarisPrivilege.CATALOG_MANAGE_CONTENT),
+        () -> newWrapper().updateTable(TABLE_NS1A_2, request),
+        null /* cleanupAction */);
+  }
+
+  @Test
+  public void testUpdateTableWith_SetMainBranchSnapshotRefInsufficientPermissions() {
+    UpdateTableRequest request =
+        UpdateTableRequest.create(
+            TABLE_NS1A_2,
+            List.of(), // no requirements
+            List.of(
+                new MetadataUpdate.SetSnapshotRef(
+                    "main", 12345L, org.apache.iceberg.SnapshotRef.TagType.BRANCH)));
+
+    doTestInsufficientPrivileges(
+        List.of(
+            PolarisPrivilege.TABLE_SET_TAG_SNAPSHOT_REF, // Tag privilege doesn't work for main
+            PolarisPrivilege.TABLE_READ_PROPERTIES,
+            PolarisPrivilege.TABLE_READ_DATA,
+            PolarisPrivilege.TABLE_CREATE,
+            PolarisPrivilege.TABLE_DROP,
+            PolarisPrivilege.TABLE_ASSIGN_UUID,
+            PolarisPrivilege.TABLE_ADD_SNAPSHOT),
+        () -> newWrapper().updateTable(TABLE_NS1A_2, request));
+  }
+
+  @Test
+  public void testUpdateTableWith_SnapshotRefPrivilegeHierarchy() {
+    // Test that TABLE_SET_SNAPSHOT_REF grants both branch and tag privileges
+    UpdateTableRequest branchRequest =
+        UpdateTableRequest.create(
+            TABLE_NS1A_2,
+            List.of(),
+            List.of(
+                new MetadataUpdate.SetSnapshotRef(
+                    "feature-branch", 12345L, org.apache.iceberg.SnapshotRef.TagType.BRANCH)));
+
+    UpdateTableRequest tagRequest =
+        UpdateTableRequest.create(
+            TABLE_NS1A_2,
+            List.of(),
+            List.of(
+                new MetadataUpdate.SetSnapshotRef(
+                    "v1.0.0", 12345L, org.apache.iceberg.SnapshotRef.TagType.TAG)));
+
+    UpdateTableRequest mainRequest =
+        UpdateTableRequest.create(
+            TABLE_NS1A_2,
+            List.of(),
+            List.of(
+                new MetadataUpdate.SetSnapshotRef(
+                    "main", 12345L, org.apache.iceberg.SnapshotRef.TagType.BRANCH)));
+
+    // TABLE_SET_SNAPSHOT_REF should grant access to all types of snapshot refs
+    doTestSufficientPrivileges(
+        List.of(PolarisPrivilege.TABLE_SET_SNAPSHOT_REF),
+        () -> newWrapper().updateTable(TABLE_NS1A_2, branchRequest),
+        null /* cleanupAction */);
+
+    doTestSufficientPrivileges(
+        List.of(PolarisPrivilege.TABLE_SET_SNAPSHOT_REF),
+        () -> newWrapper().updateTable(TABLE_NS1A_2, tagRequest),
+        null /* cleanupAction */);
+
+    doTestSufficientPrivileges(
+        List.of(PolarisPrivilege.TABLE_SET_SNAPSHOT_REF),
+        () -> newWrapper().updateTable(TABLE_NS1A_2, mainRequest),
+        null /* cleanupAction */);
+  }
+
+  @Test
+  public void testUpdateTableWith_BranchSnapshotRefGrantsMainBranch() {
+    // Test that TABLE_SET_BRANCH_SNAPSHOT_REF also grants TABLE_SET_MAIN_BRANCH_SNAPSHOT_REF
+    UpdateTableRequest mainRequest =
+        UpdateTableRequest.create(
+            TABLE_NS1A_2,
+            List.of(),
+            List.of(
+                new MetadataUpdate.SetSnapshotRef(
+                    "main", 12345L, org.apache.iceberg.SnapshotRef.TagType.BRANCH)));
+
+    UpdateTableRequest otherBranchRequest =
+        UpdateTableRequest.create(
+            TABLE_NS1A_2,
+            List.of(),
+            List.of(
+                new MetadataUpdate.SetSnapshotRef(
+                    "develop", 12345L, org.apache.iceberg.SnapshotRef.TagType.BRANCH)));
+
+    // TABLE_SET_BRANCH_SNAPSHOT_REF should grant access to both main and other branches
+    doTestSufficientPrivileges(
+        List.of(PolarisPrivilege.TABLE_SET_BRANCH_SNAPSHOT_REF),
+        () -> newWrapper().updateTable(TABLE_NS1A_2, mainRequest),
+        null /* cleanupAction */);
+
+    doTestSufficientPrivileges(
+        List.of(PolarisPrivilege.TABLE_SET_BRANCH_SNAPSHOT_REF),
+        () -> newWrapper().updateTable(TABLE_NS1A_2, otherBranchRequest),
+        null /* cleanupAction */);
+
+    // But TABLE_SET_MAIN_BRANCH_SNAPSHOT_REF should NOT work for other branches
+    doTestInsufficientPrivileges(
+        List.of(PolarisPrivilege.TABLE_SET_MAIN_BRANCH_SNAPSHOT_REF),
+        () -> newWrapper().updateTable(TABLE_NS1A_2, otherBranchRequest));
+  }
+
+  @Test
+  public void testUpdateTableWith_MultipleSnapshotRefTypes() {
+    // Test that having multiple ref types in the same request requires corresponding privileges
+    UpdateTableRequest request =
+        UpdateTableRequest.create(
+            TABLE_NS1A_2,
+            List.of(),
+            List.of(
+                new MetadataUpdate.SetSnapshotRef(
+                    "feature", 12345L, org.apache.iceberg.SnapshotRef.TagType.BRANCH),
+                new MetadataUpdate.SetSnapshotRef(
+                    "v1.0", 12345L, org.apache.iceberg.SnapshotRef.TagType.TAG)));
+
+    // Test that having both specific privileges works
+    doTestSufficientPrivilegeSets(
+        List.of(
+            Set.of(
+                PolarisPrivilege.TABLE_SET_BRANCH_SNAPSHOT_REF,
+                PolarisPrivilege.TABLE_SET_TAG_SNAPSHOT_REF),
+            Set.of(PolarisPrivilege.TABLE_SET_SNAPSHOT_REF), // Broader privilege should work
+            Set.of(PolarisPrivilege.TABLE_WRITE_PROPERTIES),
+            Set.of(PolarisPrivilege.TABLE_FULL_METADATA),
+            Set.of(PolarisPrivilege.CATALOG_MANAGE_CONTENT)),
+        () -> newWrapper().updateTable(TABLE_NS1A_2, request),
+        null /* cleanupAction */,
+        PRINCIPAL_NAME,
+        CATALOG_NAME);
+  }
+
+  @Test
+  public void testUpdateTableWith_MultipleSnapshotRefTypesInsufficientPermissions() {
+    // Test that having only one of the required privileges fails
+    UpdateTableRequest request =
+        UpdateTableRequest.create(
+            TABLE_NS1A_2,
+            List.of(),
+            List.of(
+                new MetadataUpdate.SetSnapshotRef(
+                    "feature", 12345L, org.apache.iceberg.SnapshotRef.TagType.BRANCH),
+                new MetadataUpdate.SetSnapshotRef(
+                    "v1.0", 12345L, org.apache.iceberg.SnapshotRef.TagType.TAG)));
+
+    // Test that having only one specific privilege fails (need both)
+    doTestInsufficientPrivileges(
+        List.of(
+            PolarisPrivilege.TABLE_SET_BRANCH_SNAPSHOT_REF, // Only one of the two needed
+            PolarisPrivilege.TABLE_SET_TAG_SNAPSHOT_REF, // Only one of the two needed
+            PolarisPrivilege.TABLE_SET_MAIN_BRANCH_SNAPSHOT_REF,
+            PolarisPrivilege.TABLE_READ_PROPERTIES,
+            PolarisPrivilege.TABLE_CREATE),
+        () -> newWrapper().updateTable(TABLE_NS1A_2, request));
+  }
 }

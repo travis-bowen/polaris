@@ -47,6 +47,8 @@ request adding CHANGELOG notes for breaking (!) changes and possibly other secti
 
 ### New Features
 
+- Added even finer grained authorization for setting snapshot refs within UpdateTable requests. Existing privileges like `TABLE_SET_SNAPSHOT_REF` continue to work.
+  However, you can now grant more specific privileges to control branch vs tag refs: `TABLE_SET_BRANCH_SNAPSHOT_REF`, `TABLE_SET_TAG_SNAPSHOT_REF`, and `TABLE_SET_MAIN_BRANCH_SNAPSHOT_REF` for the main branch specifically.
 - Support credential vending for federated catalogs. `ALLOW_FEDERATED_CATALOGS_CREDENTIAL_VENDING` (default: true) was added to toggle this feature.
 
 ### Changes

@@ -90,12 +90,15 @@ import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_REMOVE_PROPE
 import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_REMOVE_SNAPSHOTS;
 import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_REMOVE_SNAPSHOT_REF;
 import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_REMOVE_STATISTICS;
+import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_SET_BRANCH_SNAPSHOT_REF;
 import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_SET_CURRENT_SCHEMA;
 import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_SET_DEFAULT_SORT_ORDER;
 import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_SET_LOCATION;
+import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_SET_MAIN_BRANCH_SNAPSHOT_REF;
 import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_SET_PROPERTIES;
 import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_SET_SNAPSHOT_REF;
 import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_SET_STATISTICS;
+import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_SET_TAG_SNAPSHOT_REF;
 import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_UPGRADE_FORMAT_VERSION;
 import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_WRITE_DATA;
 import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_WRITE_PROPERTIES;
@@ -239,6 +242,9 @@ public enum PolarisAuthorizableOperation {
   SET_TABLE_DEFAULT_SORT_ORDER(TABLE_SET_DEFAULT_SORT_ORDER),
   ADD_TABLE_SNAPSHOT(TABLE_ADD_SNAPSHOT),
   SET_TABLE_SNAPSHOT_REF(TABLE_SET_SNAPSHOT_REF),
+  SET_TABLE_BRANCH_SNAPSHOT_REF(TABLE_SET_BRANCH_SNAPSHOT_REF),
+  SET_TABLE_TAG_SNAPSHOT_REF(TABLE_SET_TAG_SNAPSHOT_REF),
+  SET_TABLE_MAIN_BRANCH_SNAPSHOT_REF(TABLE_SET_MAIN_BRANCH_SNAPSHOT_REF),
   REMOVE_TABLE_SNAPSHOTS(TABLE_REMOVE_SNAPSHOTS),
   REMOVE_TABLE_SNAPSHOT_REF(TABLE_REMOVE_SNAPSHOT_REF),
   SET_TABLE_LOCATION(TABLE_SET_LOCATION),

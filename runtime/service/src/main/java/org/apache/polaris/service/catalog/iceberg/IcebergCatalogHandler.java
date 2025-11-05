@@ -1203,8 +1203,23 @@ public class IcebergCatalogHandler extends CatalogHandler implements AutoCloseab
                             PolarisAuthorizableOperation.SET_TABLE_DEFAULT_SORT_ORDER;
                         case MetadataUpdate.AddSnapshot addSnapshot ->
                             PolarisAuthorizableOperation.ADD_TABLE_SNAPSHOT;
-                        case MetadataUpdate.SetSnapshotRef setSnapshotRef ->
-                            PolarisAuthorizableOperation.SET_TABLE_SNAPSHOT_REF;
+                        case MetadataUpdate.SetSnapshotRef setSnapshotRef -> {
+                          // Determine fine-grained operation based on ref type and name
+                          if (setSnapshotRef.type() == org.apache.iceberg.SnapshotRef.TagType.TAG) {
+                            yield PolarisAuthorizableOperation.SET_TABLE_TAG_SNAPSHOT_REF;
+                          } else if (setSnapshotRef.type()
+                              == org.apache.iceberg.SnapshotRef.TagType.BRANCH) {
+                            // For branches, check if it's the main branch
+                            if ("main".equals(setSnapshotRef.name())) {
+                              yield PolarisAuthorizableOperation.SET_TABLE_MAIN_BRANCH_SNAPSHOT_REF;
+                            } else {
+                              yield PolarisAuthorizableOperation.SET_TABLE_BRANCH_SNAPSHOT_REF;
+                            }
+                          } else {
+                            // Fallback to generic SET_TABLE_SNAPSHOT_REF if type is unknown
+                            yield PolarisAuthorizableOperation.SET_TABLE_SNAPSHOT_REF;
+                          }
+                        }
                         case MetadataUpdate.RemoveSnapshots removeSnapshots ->
                             PolarisAuthorizableOperation.REMOVE_TABLE_SNAPSHOTS;
                         case MetadataUpdate.RemoveSnapshotRef removeSnapshotRef ->

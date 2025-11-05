@@ -104,12 +104,15 @@ import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_REMOVE_PROPE
 import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_REMOVE_SNAPSHOTS;
 import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_REMOVE_SNAPSHOT_REF;
 import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_REMOVE_STATISTICS;
+import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_SET_BRANCH_SNAPSHOT_REF;
 import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_SET_CURRENT_SCHEMA;
 import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_SET_DEFAULT_SORT_ORDER;
 import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_SET_LOCATION;
+import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_SET_MAIN_BRANCH_SNAPSHOT_REF;
 import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_SET_PROPERTIES;
 import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_SET_SNAPSHOT_REF;
 import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_SET_STATISTICS;
+import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_SET_TAG_SNAPSHOT_REF;
 import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_UPGRADE_FORMAT_VERSION;
 import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_WRITE_DATA;
 import static org.apache.polaris.core.entity.PolarisPrivilege.TABLE_WRITE_PROPERTIES;
@@ -353,6 +356,37 @@ public class PolarisAuthorizerImpl implements PolarisAuthorizer {
             TABLE_WRITE_DATA,
             TABLE_WRITE_PROPERTIES,
             TABLE_SET_SNAPSHOT_REF));
+    SUPER_PRIVILEGES.putAll(
+        TABLE_SET_BRANCH_SNAPSHOT_REF,
+        List.of(
+            CATALOG_MANAGE_CONTENT,
+            CATALOG_MANAGE_METADATA,
+            TABLE_FULL_METADATA,
+            TABLE_WRITE_DATA,
+            TABLE_WRITE_PROPERTIES,
+            TABLE_SET_SNAPSHOT_REF,
+            TABLE_SET_BRANCH_SNAPSHOT_REF));
+    SUPER_PRIVILEGES.putAll(
+        TABLE_SET_TAG_SNAPSHOT_REF,
+        List.of(
+            CATALOG_MANAGE_CONTENT,
+            CATALOG_MANAGE_METADATA,
+            TABLE_FULL_METADATA,
+            TABLE_WRITE_DATA,
+            TABLE_WRITE_PROPERTIES,
+            TABLE_SET_SNAPSHOT_REF,
+            TABLE_SET_TAG_SNAPSHOT_REF));
+    SUPER_PRIVILEGES.putAll(
+        TABLE_SET_MAIN_BRANCH_SNAPSHOT_REF,
+        List.of(
+            CATALOG_MANAGE_CONTENT,
+            CATALOG_MANAGE_METADATA,
+            TABLE_FULL_METADATA,
+            TABLE_WRITE_DATA,
+            TABLE_WRITE_PROPERTIES,
+            TABLE_SET_SNAPSHOT_REF,
+            TABLE_SET_BRANCH_SNAPSHOT_REF,
+            TABLE_SET_MAIN_BRANCH_SNAPSHOT_REF));
     SUPER_PRIVILEGES.putAll(
         TABLE_REMOVE_SNAPSHOTS,
         List.of(
